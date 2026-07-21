@@ -24,7 +24,7 @@ data class SocialUser(
     @SoftDelete
     val deleted: Int = 0,
     @CreatedAt
-    val createdAt: String? = null,
+    val createdAt: Long? = null,
     @UpdatedAt
-    val updatedAt: String? = null
+    val updatedAt: Long? = null
 )

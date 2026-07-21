@@ -13,5 +13,5 @@ data class RoleMenu(
     val roleId: Long,
     val menuId: Long,
     @CreatedAt
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

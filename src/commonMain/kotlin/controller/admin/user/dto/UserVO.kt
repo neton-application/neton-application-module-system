@@ -14,6 +14,6 @@ data class UserVO(
     val deptId: Long = 0,
     val remark: String? = null,
     val status: Int,
-    val createdAt: String? = null,
-    val updatedAt: String? = null
+    val createdAt: Long? = null,
+    val updatedAt: Long? = null
 )

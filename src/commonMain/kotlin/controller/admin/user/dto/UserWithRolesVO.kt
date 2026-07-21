@@ -10,6 +10,6 @@ data class UserWithRolesVO(
     val nickname: String,
     val status: Int,
     val roles: List<RoleVO>,
-    val createdAt: String? = null,
-    val updatedAt: String? = null
+    val createdAt: Long? = null,
+    val updatedAt: Long? = null
 )

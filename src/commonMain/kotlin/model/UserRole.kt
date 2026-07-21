@@ -13,5 +13,5 @@ data class UserRole(
     val userId: Long,
     val roleId: Long,
     @CreatedAt
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

@@ -16,7 +16,7 @@ data class NotificationTemplateVO(
     val params: String? = null,
     val status: Int = 1,
     val remark: String? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )
 
 @Serializable

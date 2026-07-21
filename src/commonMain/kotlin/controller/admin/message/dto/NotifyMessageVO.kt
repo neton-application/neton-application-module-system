@@ -14,6 +14,6 @@ data class NotifyMessageVO(
     val templateContent: String? = null,
     val templateParams: String? = null,
     val readStatus: Int = 0,
-    val readTime: String? = null,
-    val createdAt: String? = null
+    val readTime: Long? = null,
+    val createdAt: Long? = null
 )

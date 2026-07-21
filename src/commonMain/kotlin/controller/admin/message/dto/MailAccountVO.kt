@@ -23,7 +23,7 @@ data class MailAccountVO(
     val starttlsEnable: Boolean = false,
     val status: Int = 1,
     val remark: String? = null,
-    val createTime: String? = null
+    val createTime: Long? = null
 ) {
     fun toChannel(): MessageChannel {
         val config = buildJsonObject {

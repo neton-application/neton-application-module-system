@@ -20,9 +20,9 @@ data class NotifyMessage(
     val templateContent: String? = null,
     val templateParams: String? = null,
     val readStatus: Int = 0,
-    val readTime: String? = null,
+    val readTime: Long? = null,
     @CreatedAt
-    val createdAt: String? = null,
+    val createdAt: Long? = null,
     @UpdatedAt
-    val updatedAt: String? = null
+    val updatedAt: Long? = null
 )

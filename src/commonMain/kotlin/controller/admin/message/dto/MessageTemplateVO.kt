@@ -17,7 +17,7 @@ data class MessageTemplateVO(
     val type: Int = 0,
     val status: Int = 1,
     val remark: String? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )
 
 @Serializable

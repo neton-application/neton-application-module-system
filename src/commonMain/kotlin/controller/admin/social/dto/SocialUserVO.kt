@@ -11,5 +11,5 @@ data class SocialUserVO(
     val openId: String,
     val nickname: String? = null,
     val avatar: String? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

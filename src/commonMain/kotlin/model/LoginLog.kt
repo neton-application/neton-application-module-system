@@ -16,5 +16,5 @@ data class LoginLog(
     val userAgent: String? = null,
     val loginResult: Int,
     @CreatedAt
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

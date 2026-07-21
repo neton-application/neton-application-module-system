@@ -13,8 +13,8 @@ data class NoticeVO(
     val content: String,
     val type: Int,
     val status: Int,
-    val createdAt: String? = null,
-    val updatedAt: String? = null
+    val createdAt: Long? = null,
+    val updatedAt: Long? = null
 )
 
 @Serializable

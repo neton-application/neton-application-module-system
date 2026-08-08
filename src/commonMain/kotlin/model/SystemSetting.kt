@@ -10,12 +10,12 @@ import neton.database.annotations.UpdatedAt
 /**
  * 全局配置行（SYSTEM_CONFIG_SPEC §5）。
  *
- * [value] 一律存字符串，真实类型由代码里的 `ConfigDefinition` 决定 ——
+ * [value] 一律存字符串，真实类型由代码里的 `SettingDefinition` 决定 ——
  * 数据库不做类型分裂，免得为一个布尔值再开一列。
  */
 @Serializable
-@Table("system_configs")
-data class SystemConfig(
+@Table("system_settings")
+data class SystemSetting(
     @Id
     val id: Long = 0,
 

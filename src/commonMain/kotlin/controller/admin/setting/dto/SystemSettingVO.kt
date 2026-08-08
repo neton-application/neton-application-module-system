@@ -1,14 +1,14 @@
-package controller.admin.config.dto
+package controller.admin.setting.dto
 
 import kotlinx.serialization.Serializable
 
 /** 配置项：库里的当前值 + 代码里的定义合并后的视图 */
 @Serializable
-data class SystemConfigVO(
+data class SystemSettingVO(
     val category: String,
     val key: String,
     val value: String,
-    /** ConfigValueType 序号，后台据此选控件 */
+    /** SettingValueType 序号，后台据此选控件 */
     val valueType: Int,
     val name: String,
     val description: String,
@@ -18,4 +18,4 @@ data class SystemConfigVO(
 )
 
 @Serializable
-data class UpdateSystemConfigRequest(val key: String, val value: String)
+data class UpdateSystemSettingRequest(val key: String, val value: String)

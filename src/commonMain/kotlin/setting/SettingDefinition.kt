@@ -1,7 +1,7 @@
-package config
+package setting
 
 /** 配置值类型。决定后台用什么控件、以及怎么解析。 */
-enum class ConfigValueType { STRING, INT, LONG, BOOLEAN, DECIMAL, JSON }
+enum class SettingValueType { STRING, INT, LONG, BOOLEAN, DECIMAL, JSON }
 
 /**
  * 一个可由后台调整的全局配置项（SYSTEM_CONFIG_SPEC §2）。
@@ -12,10 +12,10 @@ enum class ConfigValueType { STRING, INT, LONG, BOOLEAN, DECIMAL, JSON }
  * 泛型带住类型，是为了让读取端 [ConfigReader.get] 直接返回 [T] 而不是字符串：
  * key 打错编译不过，类型不会错，且一定有值。
  */
-class ConfigDefinition<T : Any> private constructor(
+class SettingDefinition<T : Any> private constructor(
     val category: String,
     val key: String,
-    val valueType: ConfigValueType,
+    val valueType: SettingValueType,
     val default: T,
     val name: String,
     val description: String,
@@ -30,7 +30,7 @@ class ConfigDefinition<T : Any> private constructor(
     /** 默认值的字符串形式，同步入库时用 */
     val defaultRaw: String get() = renderer(default)
 
-    override fun toString(): String = "ConfigDefinition($key: $valueType = $defaultRaw)"
+    override fun toString(): String = "SettingDefinition($key: $valueType = $defaultRaw)"
 
     companion object {
         fun string(
@@ -39,8 +39,8 @@ class ConfigDefinition<T : Any> private constructor(
             default: String,
             name: String,
             description: String,
-        ): ConfigDefinition<String> = ConfigDefinition(
-            category, key, ConfigValueType.STRING, default, name, description,
+        ): SettingDefinition<String> = SettingDefinition(
+            category, key, SettingValueType.STRING, default, name, description,
             parser = { it.ifEmpty { null } },
             renderer = { it },
         )
@@ -58,10 +58,10 @@ class ConfigDefinition<T : Any> private constructor(
             description: String,
             min: Int = Int.MIN_VALUE,
             max: Int = Int.MAX_VALUE,
-        ): ConfigDefinition<Int> {
+        ): SettingDefinition<Int> {
             require(default in min..max) { "配置 $key 的默认值 $default 不在 [$min, $max] 内" }
-            return ConfigDefinition(
-                category, key, ConfigValueType.INT, default, name, description,
+            return SettingDefinition(
+                category, key, SettingValueType.INT, default, name, description,
                 parser = { it.toIntOrNull()?.takeIf { v -> v in min..max } },
                 renderer = { it.toString() },
             )
@@ -75,10 +75,10 @@ class ConfigDefinition<T : Any> private constructor(
             description: String,
             min: Long = Long.MIN_VALUE,
             max: Long = Long.MAX_VALUE,
-        ): ConfigDefinition<Long> {
+        ): SettingDefinition<Long> {
             require(default in min..max) { "配置 $key 的默认值 $default 不在 [$min, $max] 内" }
-            return ConfigDefinition(
-                category, key, ConfigValueType.LONG, default, name, description,
+            return SettingDefinition(
+                category, key, SettingValueType.LONG, default, name, description,
                 parser = { it.toLongOrNull()?.takeIf { v -> v in min..max } },
                 renderer = { it.toString() },
             )
@@ -91,8 +91,8 @@ class ConfigDefinition<T : Any> private constructor(
             default: Boolean,
             name: String,
             description: String,
-        ): ConfigDefinition<Boolean> = ConfigDefinition(
-            category, key, ConfigValueType.BOOLEAN, default, name, description,
+        ): SettingDefinition<Boolean> = SettingDefinition(
+            category, key, SettingValueType.BOOLEAN, default, name, description,
             parser = {
                 when (it.lowercase()) {
                     "true", "1", "yes", "on" -> true
@@ -110,8 +110,8 @@ class ConfigDefinition<T : Any> private constructor(
             default: String,
             name: String,
             description: String,
-        ): ConfigDefinition<String> = ConfigDefinition(
-            category, key, ConfigValueType.DECIMAL, default, name, description,
+        ): SettingDefinition<String> = SettingDefinition(
+            category, key, SettingValueType.DECIMAL, default, name, description,
             parser = { raw -> raw.takeIf { it.matches(Regex("^-?\\d+(\\.\\d+)?$")) } },
             renderer = { it },
         )
@@ -123,8 +123,8 @@ class ConfigDefinition<T : Any> private constructor(
             default: String,
             name: String,
             description: String,
-        ): ConfigDefinition<String> = ConfigDefinition(
-            category, key, ConfigValueType.JSON, default, name, description,
+        ): SettingDefinition<String> = SettingDefinition(
+            category, key, SettingValueType.JSON, default, name, description,
             parser = { it.ifEmpty { null } },
             renderer = { it },
         )
@@ -142,13 +142,13 @@ class ConfigDefinition<T : Any> private constructor(
  * 注册时查重：两个模块用同一个 key 会互相覆盖，运行期只表现为「我改了配置但没生效」，
  * 极难定位，所以宁可启动失败。
  */
-class ConfigDefinitionRegistry {
+class SettingDefinitionRegistry {
 
-    private val byKey = mutableMapOf<String, ConfigDefinition<*>>()
+    private val byKey = mutableMapOf<String, SettingDefinition<*>>()
 
-    val definitions: List<ConfigDefinition<*>> get() = byKey.values.toList()
+    val definitions: List<SettingDefinition<*>> get() = byKey.values.toList()
 
-    fun register(definitions: List<ConfigDefinition<*>>) {
+    fun register(definitions: List<SettingDefinition<*>>) {
         for (definition in definitions) {
             val existing = byKey[definition.key]
             check(existing == null || existing === definition) {
@@ -159,8 +159,8 @@ class ConfigDefinitionRegistry {
         }
     }
 
-    fun find(key: String): ConfigDefinition<*>? = byKey[key]
+    fun find(key: String): SettingDefinition<*>? = byKey[key]
 
-    fun byCategory(category: String): List<ConfigDefinition<*>> =
+    fun byCategory(category: String): List<SettingDefinition<*>> =
         definitions.filter { it.category == category }
 }

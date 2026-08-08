@@ -24,6 +24,21 @@ object SystemRuntimeBootstrap {
         val jwt = ctx.getOrNull(JwtAuthenticator::class) ?: buildJwtAuthenticator(ctx)
         ctx.bind(JwtAuthenticator::class, jwt)
 
+        // 配置定义注册表：装配层可覆盖（bind 一个含各模块定义的实例）；
+        // 这里 bindIfAbsent 保证未注册任何定义的部署也能启动，读取一律退回代码默认值。
+        // 空注册表先绑上，业务模块在各自 bootstrap 里往里 register；
+        // SystemConfigLogic 持有的是同一个实例，所以后注册的定义它也看得到。
+        val configRegistry = config.ConfigDefinitionRegistry()
+        ctx.bind(config.ConfigDefinitionRegistry::class, configRegistry)
+        ctx.bind(
+            logic.SystemConfigLogic::class,
+            logic.SystemConfigLogic(
+                log = loggerFactory.get("logic.system.config"),
+                db = ctx.get(neton.database.api.DbContext::class),
+                registry = configRegistry,
+            ),
+        )
+
         // SuperAdminEvaluator —— rbac-spec §7。启动日志只打 count, 不打具体 codes。
         val superAdminCodes = loadSuperAdminCodes(ctx)
         val securityLog = loggerFactory.get("security")

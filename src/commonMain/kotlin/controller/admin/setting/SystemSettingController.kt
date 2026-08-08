@@ -24,7 +24,7 @@ class SystemSettingController(
     @Get("/list")
     @Permission("system:setting:query")
     suspend fun list(@Query category: String? = null): List<SystemSettingVO> {
-        val stored = configLogic.list(category).associateBy { it.configKey }
+        val stored = configLogic.list(category).associateBy { it.settingKey }
         return configLogic.definitions()
             .filter { category.isNullOrBlank() || it.category == category }
             .map { definition ->

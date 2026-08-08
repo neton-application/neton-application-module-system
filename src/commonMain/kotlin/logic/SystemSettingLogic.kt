@@ -30,7 +30,7 @@ class SystemSettingLogic(
      * 后台是自由文本输入，一个手滑的空格不该让业务接口 500。
      */
     suspend fun <T : Any> get(definition: SettingDefinition<T>): T {
-        val row = SystemSettingTable.oneWhere { SystemSetting::configKey eq definition.key }
+        val row = SystemSettingTable.oneWhere { SystemSetting::settingKey eq definition.key }
             ?: return definition.default
         val parsed = definition.parse(row.value)
         if (parsed == null) {
@@ -48,12 +48,12 @@ class SystemSettingLogic(
                 "「${definition.name}」的值不合法：${definition.description}",
             )
         val normalized = definition.render(parsed)
-        val existing = SystemSettingTable.oneWhere { SystemSetting::configKey eq definition.key }
+        val existing = SystemSettingTable.oneWhere { SystemSetting::settingKey eq definition.key }
         if (existing == null) {
             SystemSettingTable.insert(
                 SystemSetting(
                     category = definition.category,
-                    configKey = definition.key,
+                    settingKey = definition.key,
                     value = normalized,
                     valueType = definition.valueType.ordinal,
                     name = definition.name,
@@ -83,14 +83,14 @@ class SystemSettingLogic(
      * 运营改过的值不能被一次发版重置回默认。
      */
     suspend fun syncDefinitions(): Int {
-        val existing = SystemSettingTable.findAll().map { it.configKey }.toSet()
+        val existing = SystemSettingTable.findAll().map { it.settingKey }.toSet()
         var created = 0
         for (definition in registry.definitions) {
             if (definition.key in existing) continue
             SystemSettingTable.insert(
                 SystemSetting(
                     category = definition.category,
-                    configKey = definition.key,
+                    settingKey = definition.key,
                     value = definition.defaultRaw,
                     valueType = definition.valueType.ordinal,
                     name = definition.name,
@@ -106,7 +106,7 @@ class SystemSettingLogic(
     suspend fun list(category: String? = null): List<SystemSetting> =
         SystemSettingTable.query {
             where { and(whenNotBlank(category) { SystemSetting::category eq it }) }
-            orderBy(SystemSetting::category.asc(), SystemSetting::configKey.asc())
+            orderBy(SystemSetting::category.asc(), SystemSetting::settingKey.asc())
         }.list()
 
     /** 定义清单：后台据此渲染控件与说明，并禁止手写任意 key。 */

@@ -22,8 +22,8 @@ data class SystemSetting(
     /** 归属模块，如 member / cs / payment */
     val category: String,
 
-    @Column(name = "config_key")
-    val configKey: String,
+    @Column(name = "setting_key")
+    val settingKey: String,
 
     val value: String,
 

@@ -5,10 +5,10 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import neton.core.config.getEnv
-import neton.http.client.NetonHttpClient
+import neton.http.client.HttpClient
 import neton.http.client.create
-import neton.http.client.NetonHttpMethod
-import neton.http.client.NetonHttpRequest
+import neton.http.client.HttpClientMethod
+import neton.http.client.HttpClientRequest
 import neton.logging.Logger
 
 /**
@@ -30,7 +30,7 @@ import neton.logging.Logger
  */
 class SmsProvider(
     private val log: Logger,
-    private val http: NetonHttpClient = NetonHttpClient.create { requestMillis = 15_000 }
+    private val http: HttpClient = HttpClient.create { requestMillis = 15_000 }
 ) : MessageProvider {
 
     override val type: String = "sms"
@@ -60,7 +60,7 @@ class SmsProvider(
 
         val body = try {
             val resp = http.request(
-                NetonHttpRequest(method = NetonHttpMethod.Get, url = url)
+                HttpClientRequest(method = HttpClientMethod.Get, url = url)
             )
             if (resp.statusCode !in 200..299) {
                 log.error("sms.provider.http_error status=${resp.statusCode} receiver=${mask(receiver)}")

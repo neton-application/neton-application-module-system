@@ -6,7 +6,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import neton.core.config.getEnv
 import neton.http.client.HttpClient
-import neton.http.client.create
 import neton.http.client.HttpClientMethod
 import neton.http.client.HttpClientRequest
 import neton.logging.Logger
@@ -30,7 +29,8 @@ import neton.logging.Logger
  */
 class SmsProvider(
     private val log: Logger,
-    private val http: HttpClient = HttpClient.create { requestMillis = 15_000 }
+    /** 借用应用绑定的出站客户端；本类不创建、不关闭。 */
+    private val http: HttpClient,
 ) : MessageProvider {
 
     override val type: String = "sms"

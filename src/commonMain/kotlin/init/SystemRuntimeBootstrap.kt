@@ -47,7 +47,11 @@ object SystemRuntimeBootstrap {
         ctx.bind(SuperAdminEvaluator::class, superAdminEvaluator)
 
         // ===== 创建 Provider =====
-        val smsProvider = SmsProvider(loggerFactory.get("provider.sms"))
+        val outboundHttp = ctx.getOrNull(neton.http.client.HttpClient::class) ?: error(
+            "module-system needs an HttpClient bound in NetonContext (SmsProvider). Build one in the " +
+                "application with HttpClient.create { } and bind(HttpClient::class, it).",
+        )
+        val smsProvider = SmsProvider(loggerFactory.get("provider.sms"), outboundHttp)
         val emailProvider = EmailProvider(loggerFactory.get("provider.email"))
         val messageProviders = mapOf<String, MessageProvider>("sms" to smsProvider, "email" to emailProvider)
 

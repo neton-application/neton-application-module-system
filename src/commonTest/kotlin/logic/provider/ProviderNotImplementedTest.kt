@@ -20,7 +20,7 @@ class ProviderNotImplementedTest {
     fun `sms send does not fake success`() {
         runBlocking {
             assertFailsWith<ProviderNotImplementedException> {
-                SmsProvider(log).send("13800001111", "code 123456", "{}")
+                SmsProvider(log, neton.http.testkit.ScriptedHttpClient()).send("13800001111", "code 123456", "{}")
             }
         }
     }

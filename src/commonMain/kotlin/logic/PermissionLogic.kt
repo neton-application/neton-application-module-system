@@ -216,7 +216,7 @@ class PermissionLogic(
                     icon = menu.icon,
                     sort = menu.sort,
                     status = menu.status,
-                    visible = menu.status == 1,
+                    visible = menu.visible,
                     keepAlive = true,
                     children = children.ifEmpty { null }
                 )

@@ -20,6 +20,8 @@ data class Menu(
     val icon: String? = null,
     val sort: Int = 0,
     val status: Int = 1,
+    /** Whether this route appears in navigation. Hidden routes remain authorized and addressable. */
+    val visible: Boolean = true,
     @CreatedAt
     val createdAt: Long? = null,
     @UpdatedAt

@@ -43,7 +43,8 @@ class MenuController(
                 component = request.component,
                 icon = request.icon,
                 sort = request.sort,
-                status = request.status
+                status = request.status,
+                visible = request.visible,
             )
         )
     }
@@ -62,7 +63,8 @@ class MenuController(
                 component = request.component,
                 icon = request.icon,
                 sort = request.sort,
-                status = request.status
+                status = request.status,
+                visible = request.visible,
             )
         )
     }

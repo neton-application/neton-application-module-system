@@ -56,10 +56,8 @@ data class CreateMenuRequest(
     @property:Max(1)
     val status: Int = 1,
 
-    // ── 前端表单的展示层字段（vben menu form 会一并提交）。后端 Menu 模型无对应列，
-    //    仅为反序列化容忍而声明（严格解析下未知键=400 Validation failed）。──
     val componentName: String? = null,
-    val visible: Boolean? = null,
+    val visible: Boolean = true,
     val alwaysShow: Boolean? = null,
     val keepAlive: Boolean? = null,
 )
@@ -100,10 +98,8 @@ data class UpdateMenuRequest(
     @property:Max(1)
     val status: Int = 1,
 
-    // ── 前端表单的展示层字段（vben menu form 会一并提交）。后端 Menu 模型无对应列，
-    //    仅为反序列化容忍而声明（严格解析下未知键=400 Validation failed）。──
     val componentName: String? = null,
-    val visible: Boolean? = null,
+    val visible: Boolean = true,
     val alwaysShow: Boolean? = null,
     val keepAlive: Boolean? = null,
 )

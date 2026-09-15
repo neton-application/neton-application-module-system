@@ -97,7 +97,7 @@ class MenuLogic(
         icon = icon,
         sort = sort,
         status = status,
-        visible = status == 1,
+        visible = visible,
         keepAlive = true,
         children = children
     )

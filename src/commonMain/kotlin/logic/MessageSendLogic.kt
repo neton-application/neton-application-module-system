@@ -23,6 +23,46 @@ class MessageSendLogic(
     companion object {
         private const val SMS_CODE_PREFIX = "sms:code:"
         private const val SMS_CODE_TTL_SECONDS = 300L  // 5 minutes
+        private const val MAIL_CODE_PREFIX = "mail:code:"
+    }
+
+    /**
+     * 邮件验证码：码进 Redis（5 分钟）；有模板 `mail_verification_<scene>` 走模板，没有就用任一启用的
+     * 邮箱账号发一封默认文案；两者都没有则只落 dev 日志（与短信一致，方便本地联调从日志取码）。
+     */
+    suspend fun sendEmailCode(email: String, scene: String): Boolean {
+        val code = Random.nextInt(100000, 999999).toString()
+        val key = "$MAIL_CODE_PREFIX${email.lowercase()}"
+        if (redis != null) redis.set(key, code, SMS_CODE_TTL_SECONDS.seconds)
+        else log.warn("mail.code.redis_unavailable scene=$scene")
+        val templateCode = "mail_verification_$scene"
+        val template = runCatching { messageTemplateLogic.getByCode(templateCode) }.getOrNull()
+        if (template != null) return sendByTemplate(templateCode, email, mapOf("code" to code))
+        val channel = messageChannelLogic.listRawByType("email").firstOrNull { it.status == 1 }
+        if (channel != null) {
+            val provider = messageChannelLogic.getProvider("email") ?: return false
+            val content = "Subject: 验证码\n您的验证码是 $code，5 分钟内有效。如非本人操作请忽略。"
+            return try {
+                val ok = provider.send(email, content, channel.config ?: "{}")
+                logMessage(channel.id, null, templateCode, email, "验证码邮件", mapOf("scene" to scene).toString(), if (ok) 0 else 1, null, null, 0)
+                ok
+            } catch (e: Exception) {
+                log.error("mail.code.send_failed scene=$scene: ${e.message}")
+                logMessage(channel.id, null, templateCode, email, "验证码邮件", mapOf("scene" to scene).toString(), 1, e.message, null, 0)
+                false
+            }
+        }
+        logMessage(0L, null, templateCode, email, "[DEV] code=$code", mapOf("code" to code, "scene" to scene).toString(), 0, null, null, 0)
+        return true
+    }
+
+    suspend fun verifyEmailCode(email: String, code: String): Boolean {
+        if (redis == null) return false
+        val key = "$MAIL_CODE_PREFIX${email.lowercase()}"
+        val stored = redis.getValue(key)
+        if (stored == null || stored != code) return false
+        redis.delete(key)
+        return true
     }
 
     private fun maskMobile(mobile: String): String {

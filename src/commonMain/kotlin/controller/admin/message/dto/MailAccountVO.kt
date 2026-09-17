@@ -21,12 +21,19 @@ data class MailAccountVO(
     val port: Int = 465,
     val sslEnable: Boolean = true,
     val starttlsEnable: Boolean = false,
+    /** 发信厂商：resend | sendgrid | mailgun | brevo | http；smtp 在本运行时不可用（无 TLS socket） */
+    val vendor: String = "smtp",
+    val apiKey: String = "",
+    /** mailgun 填 https://api.mailgun.net/v3/<domain>；http 填接收 JSON 的地址；其它留空 */
+    val endpoint: String = "",
+    val fromName: String = "",
     val status: Int = 1,
     val remark: String? = null,
     val createTime: Long? = null
 ) {
     fun toChannel(): MessageChannel {
         val config = buildJsonObject {
+            put("vendor", vendor); put("apiKey", apiKey); put("endpoint", endpoint); put("fromName", fromName)
             put("mail", mail)
             put("username", username)
             put("password", password)
@@ -68,6 +75,10 @@ data class MailAccountVO(
                         ?: true,
                     starttlsEnable = obj["starttlsEnable"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBoolean() }
                         ?: false,
+                    vendor = obj["vendor"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: "smtp",
+                    apiKey = obj["apiKey"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: "",
+                    endpoint = obj["endpoint"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: "",
+                    fromName = obj["fromName"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: "",
                     status = channel.status,
                     remark = channel.remark,
                     createTime = channel.createdAt
@@ -91,17 +102,14 @@ data class CreateMailAccountRequest(
     @property:Pattern("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
     val mail: String,
 
-    @property:NotBlank
-    @property:Size(min = 1, max = 128)
-    val username: String,
+    @property:Size(min = 0, max = 128)
+    val username: String = "",
 
-    @property:NotBlank
-    @property:Size(min = 1, max = 255)
-    val password: String,
+    @property:Size(min = 0, max = 255)
+    val password: String = "",
 
-    @property:NotBlank
-    @property:Size(min = 1, max = 255)
-    val host: String,
+    @property:Size(min = 0, max = 255)
+    val host: String = "",
 
     @property:Min(1)
     @property:Max(65535)
@@ -109,7 +117,13 @@ data class CreateMailAccountRequest(
 
     val sslEnable: Boolean = true,
     val starttlsEnable: Boolean = false,
-
+    val vendor: String = "smtp",
+    @property:Size(min = 0, max = 512)
+    val apiKey: String = "",
+    @property:Size(min = 0, max = 512)
+    val endpoint: String = "",
+    @property:Size(min = 0, max = 128)
+    val fromName: String = "",
     @property:Min(0)
     @property:Max(1)
     val status: Int = 1,
@@ -127,17 +141,14 @@ data class UpdateMailAccountRequest(
     @property:Pattern("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
     val mail: String,
 
-    @property:NotBlank
-    @property:Size(min = 1, max = 128)
-    val username: String,
+    @property:Size(min = 0, max = 128)
+    val username: String = "",
 
-    @property:NotBlank
-    @property:Size(min = 1, max = 255)
-    val password: String,
+    @property:Size(min = 0, max = 255)
+    val password: String = "",
 
-    @property:NotBlank
-    @property:Size(min = 1, max = 255)
-    val host: String,
+    @property:Size(min = 0, max = 255)
+    val host: String = "",
 
     @property:Min(1)
     @property:Max(65535)
@@ -145,7 +156,13 @@ data class UpdateMailAccountRequest(
 
     val sslEnable: Boolean = true,
     val starttlsEnable: Boolean = false,
-
+    val vendor: String = "smtp",
+    @property:Size(min = 0, max = 512)
+    val apiKey: String = "",
+    @property:Size(min = 0, max = 512)
+    val endpoint: String = "",
+    @property:Size(min = 0, max = 128)
+    val fromName: String = "",
     @property:Min(0)
     @property:Max(1)
     val status: Int = 1,

@@ -50,6 +50,7 @@ class MailAccountController(
                 port = request.port,
                 sslEnable = request.sslEnable,
                 starttlsEnable = request.starttlsEnable,
+                vendor = request.vendor, apiKey = request.apiKey, endpoint = request.endpoint, fromName = request.fromName,
                 status = request.status,
                 remark = request.remark
             ).toChannel()
@@ -69,6 +70,7 @@ class MailAccountController(
                 port = request.port,
                 sslEnable = request.sslEnable,
                 starttlsEnable = request.starttlsEnable,
+                vendor = request.vendor, apiKey = request.apiKey, endpoint = request.endpoint, fromName = request.fromName,
                 status = request.status,
                 remark = request.remark
             ).toChannel()

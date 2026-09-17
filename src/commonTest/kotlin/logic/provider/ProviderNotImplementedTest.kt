@@ -7,7 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
 /**
- * STD-0 contract: v1 placeholder providers must NOT fake success. They throw
+ * STD-0 contract: 未实现或未配置的 provider 必须 NOT fake success —— 抛
  * [ProviderNotImplementedException] instead of returning `true` / an empty-openId user.
  * This is the guardrail that keeps a fake SMS/email delivery or an empty social identity
  * off the live auth path.
@@ -29,7 +29,9 @@ class ProviderNotImplementedTest {
     fun `email send does not fake success`() {
         runBlocking {
             assertFailsWith<ProviderNotImplementedException> {
-                EmailProvider(log).send("a@b.com", "code 123456", "{}")
+                // 空配置 = 没选发信方式（vendor 既不是 smtp 也不是任何 HTTP 厂商）：
+                // 必须抛，不能装作发出去了。真实发信路径见 EmailProvider 的 vendor 分支。
+                EmailProvider(log, neton.http.testkit.ScriptedHttpClient()).send("a@b.com", "code 123456", "{}")
             }
         }
     }

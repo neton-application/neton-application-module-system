@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
  * role_menu 对应的 `menu.permission` 子集写进 JWT `perms` claim；请求时框架把
  * `identity.permissions` 交给 [WildcardPermissionEvaluator] 做精确判定。
  *
- * 本测试锁定「财务专员(finance_clerk)」场景：只授 `pay:withdraw:list` + `pay:withdraw:mark-paid`，
+ * 本测试锁定「财务专员(finance_clerk)」场景：只授 `pay:withdraw:query` + `pay:withdraw:mark-paid`，
  * 就只能列表 + 标记打款，**不能** reveal / approve / mark-failed。
  * （resolvePermissions 从 DB 解析子集由 granular-admin-perm-e2e.sh 端到端覆盖；
  *   这里在纯单元层锁定「拿到子集后的 enforcement 语义」，防止未来 evaluator 回归。）
@@ -36,11 +36,11 @@ class GranularAdminPermissionTest {
     }
 
     // finance_clerk resolvePermissions 的产物：恰好这两个，不多不少。
-    private val clerk = identity("pay:withdraw:list", "pay:withdraw:mark-paid")
+    private val clerk = identity("pay:withdraw:query", "pay:withdraw:mark-paid")
 
     @Test
     fun `finance_clerk can access granted actions`() {
-        assertTrue(evaluator.allowed(clerk, "pay:withdraw:list", ctx), "有 list → 提现列表可访问")
+        assertTrue(evaluator.allowed(clerk, "pay:withdraw:query", ctx), "有 query → 提现列表与详情都可访问")
         assertTrue(evaluator.allowed(clerk, "pay:withdraw:mark-paid", ctx), "有 mark-paid → 可标记打款")
     }
 
@@ -55,6 +55,6 @@ class GranularAdminPermissionTest {
     @Test
     fun `finance_clerk subset does not leak into a wildcard`() {
         // 防止未来把「持有某模块任一权限」误扩成模块通配。
-        assertFalse(evaluator.allowed(clerk, "pay:withdraw:detail", ctx), "未授予的同模块动作仍必须拒")
+        assertFalse(evaluator.allowed(clerk, "pay:withdraw:hold", ctx), "未授予的同模块动作仍必须拒")
     }
 }

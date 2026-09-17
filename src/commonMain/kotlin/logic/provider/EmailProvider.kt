@@ -130,7 +130,8 @@ class EmailProvider(
         } else "通知" to content
     }
 
-    private fun looksLikeHtml(s: String) = Regex("<(html|body|p|div|table|a|br|h[1-6])[\\s>/]", RegexOption.IGNORE_CASE).containsMatchIn(s)
+    private val htmlTag = Regex("<(html|body|p|div|table|a|br|h[1-6])[\\s>/]", RegexOption.IGNORE_CASE)
+    private fun looksLikeHtml(s: String) = htmlTag.containsMatchIn(s)
 
     private fun mask(e: String) = e.substringBefore('@').take(2) + "***@" + e.substringAfter('@', "")
 

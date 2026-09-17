@@ -9,14 +9,13 @@ import neton.http.client.HttpClientRequest
 import neton.logging.Logger
 
 /**
- * 邮件发送：走各厂商的 HTTP 接口，不走 SMTP。
+ * 邮件发送：SMTP（任意邮箱，含企业邮箱 / QQ / 163）或厂商 HTTP 接口（Resend / SendGrid / Mailgun / Brevo / 自定义）。
  *
- * 为什么没有 SMTP：本运行时（Kotlin/Native）的 socket 没有 TLS（Ktor KTOR-694），465/587 都要 TLS，
- * 明文 25 端口现在没有哪家收信方接受。所以「邮箱账号」里的 SMTP 字段只是保留的配置位，
- * vendor 是 smtp 或缺省时直接报「不可用」，不装作发出去了。
+ * SMTP 的 socket + TLS 在引擎适配层（KtorSmtpTransport），由应用 bind 进来；HTTP 厂商直接用 HttpClient。
  *
  * 通道 config（与 MailAccountVO 同形）：
- * - vendor：resend | sendgrid | mailgun | brevo | http
+ * - vendor：smtp | resend | sendgrid | mailgun | brevo | http
+ * - smtp：host / port / username / password / sslEnable（465 隐式 TLS）/ starttlsEnable（587）
  * - apiKey；mail（发件地址）；fromName；endpoint（mailgun 填 `https://api.mailgun.net/v3/<domain>`，
  *   http 填任意接收 JSON 的地址；其它厂商留空用官方地址）
  *
@@ -25,11 +24,16 @@ import neton.logging.Logger
 class EmailProvider(
     private val log: Logger,
     private val http: HttpClient,
+    /** SMTP 发信实现，由应用装配层 bind（neton-http-ktor 的 KtorSmtpTransport）；没绑就不支持 smtp */
+    private val smtp: neton.http.mail.SmtpTransport? = null,
 ) : MessageProvider {
     override val type: String = "email"
     private val json = Json { ignoreUnknownKeys = true }
 
-    private class Cfg(val vendor: String, val apiKey: String, val from: String, val fromName: String?, val endpoint: String?)
+    private class Cfg(
+        val vendor: String, val apiKey: String, val from: String, val fromName: String?, val endpoint: String?,
+        val host: String?, val port: Int, val username: String, val password: String, val ssl: Boolean, val starttls: Boolean,
+    )
 
     override suspend fun send(receiver: String, content: String, config: String): Boolean {
         val cfg = parse(config)
@@ -37,6 +41,16 @@ class EmailProvider(
         if (to.isEmpty()) throw IllegalArgumentException("email receiver is empty")
         val (subject, body) = splitSubject(content)
         val html = looksLikeHtml(body)
+        if (cfg.vendor == "smtp") {
+            val transport = smtp ?: throw ProviderNotImplementedException("SMTP 发信未装配（应用没有 bind SmtpTransport）")
+            val host = cfg.host ?: throw IllegalArgumentException("SMTP 主机为空")
+            transport.send(
+                neton.http.mail.SmtpAccount(host, cfg.port, cfg.username, cfg.password, cfg.ssl, cfg.starttls),
+                neton.http.mail.SmtpMessage(cfg.from, cfg.fromName, to, subject, body, html),
+            )
+            log.info("email.sent vendor=smtp host=$host to=${to.joinToString(",") { mask(it) }}")
+            return true
+        }
         val request = when (cfg.vendor) {
             "resend" -> HttpClientRequest(
                 method = HttpClientMethod.Post, url = cfg.endpoint ?: "https://api.resend.com/emails",
@@ -84,9 +98,7 @@ class EmailProvider(
                     put("text", if (html) "" else body); put("html", if (html) body else "")
                 }.toString()),
             )
-            else -> throw ProviderNotImplementedException(
-                "邮件通道 vendor=${cfg.vendor} 不可用：本运行时没有 TLS socket，SMTP 发不出去；请在邮箱账号里选 resend / sendgrid / mailgun / brevo / http 之一并填 apiKey。"
-            )
+            else -> throw ProviderNotImplementedException("邮件通道 vendor=${cfg.vendor} 未配置：请在邮箱账号里选 smtp / resend / sendgrid / mailgun / brevo / http 之一。")
         }
         val res = http.request(request)
         if (res.statusCode !in 200..299) {
@@ -101,7 +113,11 @@ class EmailProvider(
         val o = runCatching { json.parseToJsonElement(config).jsonObject }.getOrNull() ?: JsonObject(emptyMap())
         fun s(k: String) = o[k]?.takeIf { it !is JsonNull }?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
         val vendor = s("vendor")?.lowercase() ?: if (s("host") != null) "smtp" else "unset"
-        return Cfg(vendor, s("apiKey") ?: "", s("mail") ?: "", s("fromName"), s("endpoint"))
+        fun b(k: String, d: Boolean) = o[k]?.takeIf { it !is JsonNull }?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: d
+        return Cfg(
+            vendor, s("apiKey") ?: "", s("mail") ?: "", s("fromName"), s("endpoint"),
+            s("host"), s("port")?.toIntOrNull() ?: 465, s("username") ?: "", s("password") ?: "", b("sslEnable", true), b("starttlsEnable", false),
+        )
     }
 
     private fun fromHeader(cfg: Cfg) = if (cfg.fromName != null) "${cfg.fromName} <${cfg.from}>" else cfg.from

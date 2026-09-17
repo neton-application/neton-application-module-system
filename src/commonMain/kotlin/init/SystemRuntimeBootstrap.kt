@@ -52,7 +52,7 @@ object SystemRuntimeBootstrap {
                 "application with HttpClient.create { } and bind(HttpClient::class, it).",
         )
         val smsProvider = SmsProvider(loggerFactory.get("provider.sms"), outboundHttp)
-        val emailProvider = EmailProvider(loggerFactory.get("provider.email"), outboundHttp)
+        val emailProvider = EmailProvider(loggerFactory.get("provider.email"), outboundHttp, ctx.getOrNull(neton.http.mail.SmtpTransport::class))
         val messageProviders = mapOf<String, MessageProvider>("sms" to smsProvider, "email" to emailProvider)
 
         val googleProvider = GoogleSocialProvider(loggerFactory.get("provider.google"))

@@ -3,6 +3,7 @@ package logic
 import dto.PageResponse
 import controller.admin.role.dto.RoleVO
 import controller.admin.user.dto.CreateUserRequest
+import controller.admin.user.dto.ProfileUpdateRequest
 import controller.admin.user.dto.UpdateUserRequest
 import controller.admin.user.dto.UserVO
 import controller.admin.user.dto.UserWithRolesVO
@@ -150,6 +151,33 @@ class UserLogic(
         val user = UserTable.get(id)
             ?: throw NotFoundException("User not found")
 
+        UserTable.update(user.copy(passwordHash = PasswordHasher.hash(newPassword)))
+    }
+
+    /** 本人改资料：只动展示类字段，部门、状态、角色一律不经这里。 */
+    suspend fun updateProfile(id: Long, request: ProfileUpdateRequest) {
+        val existing = UserTable.get(id)
+            ?: throw NotFoundException("User not found")
+        UserTable.update(
+            existing.copy(
+                nickname = request.nickname ?: existing.nickname,
+                email = request.email ?: existing.email,
+                mobile = request.mobile ?: existing.mobile,
+                gender = request.gender ?: existing.gender,
+            )
+        )
+    }
+
+    /** 本人改密码：先验旧密码。管理员重置别人的密码走 [updatePassword]，不需要旧密码。 */
+    suspend fun changeOwnPassword(id: Long, oldPassword: String, newPassword: String) {
+        val user = UserTable.get(id)
+            ?: throw NotFoundException("User not found")
+        if (!PasswordHasher.verify(oldPassword, user.passwordHash).verified) {
+            throw BadRequestException("当前密码不正确")
+        }
+        if (oldPassword == newPassword) {
+            throw BadRequestException("新密码不能与当前密码相同")
+        }
         UserTable.update(user.copy(passwordHash = PasswordHasher.hash(newPassword)))
     }
 

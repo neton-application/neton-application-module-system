@@ -36,8 +36,16 @@ class SettingDefinitionStringTest {
 
     @Test
     fun siteKeysAreWellFormed() {
-        assertEquals(listOf("site.name", "site.tagline"), SystemSettingKeys.definitions.map { it.key })
+        assertEquals(listOf("system.site.name", "system.site.tagline"), SystemSettingKeys.definitions.map { it.key })
+        assertEquals("system", SystemSettingKeys.CATEGORY)
         assertEquals("", SystemSettingKeys.SITE_TAGLINE.parse(""))
         assertNull(SystemSettingKeys.SITE_NAME.parse(""), "站点名称不能清空")
+    }
+
+    @Test
+    fun keyMustStartWithModuleName() {
+        assertFailsWith<IllegalArgumentException> { SettingDefinition.string("system", "site.name", "x", "n", "d") }
+        assertFailsWith<IllegalArgumentException> { SettingDefinition.string("system", "system.", "x", "n", "d") }
+        assertFailsWith<IllegalArgumentException> { SettingDefinition.boolean("member", "membership.x", true, "n", "d") }
     }
 }

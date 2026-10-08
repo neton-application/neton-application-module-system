@@ -9,11 +9,11 @@ package setting
  */
 object SystemSettingKeys {
 
-    const val CATEGORY = "site"
+    const val CATEGORY = "system"
 
     val SITE_NAME: SettingDefinition<String> = SettingDefinition.string(
         category = CATEGORY,
-        key = "site.name",
+        key = "system.site.name",
         default = "Neton",
         name = "站点名称",
         description = "用户端左上角、登录/注册页与浏览器标题里显示的产品名，最多 32 个字符。",
@@ -22,7 +22,7 @@ object SystemSettingKeys {
 
     val SITE_TAGLINE: SettingDefinition<String> = SettingDefinition.string(
         category = CATEGORY,
-        key = "site.tagline",
+        key = "system.site.tagline",
         default = "",
         name = "站点副标题",
         description = "显示在站点名称下方的一行小字（如 API GATEWAY），留空则不显示，最多 32 个字符。",

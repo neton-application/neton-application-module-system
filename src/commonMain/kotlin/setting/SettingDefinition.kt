@@ -22,6 +22,14 @@ class SettingDefinition<T : Any> private constructor(
     private val parser: (String) -> T?,
     private val renderer: (T) -> String,
 ) {
+    init {
+        // 命名规则：分类 = 模块名，key 的首段 = 分类（member.signin.cycle_days、system.site.name）。
+        // 首段不是模块名的 key 看不出归谁，两个模块也更容易撞名；宁可声明时就失败。
+        require(category.isNotBlank() && key.startsWith("$category.") && key.length > category.length + 1) {
+            "配置 key '$key' 的首段必须是模块名（分类 '$category'），写成 '$category.xxx'"
+        }
+    }
+
     /** 解析失败返回 null，由读取方退回 [default]——后台是自由文本，手滑不该让接口 500。 */
     fun parse(raw: String): T? = runCatching { parser(raw.trim()) }.getOrNull()
 

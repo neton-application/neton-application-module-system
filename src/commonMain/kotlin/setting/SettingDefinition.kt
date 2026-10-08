@@ -33,17 +33,27 @@ class SettingDefinition<T : Any> private constructor(
     override fun toString(): String = "SettingDefinition($key: $valueType = $defaultRaw)"
 
     companion object {
+        /**
+         * [allowBlank] 为 true 时空串是合法值（「不显示」这类语义），否则空串视为不合法、读取退回默认值。
+         * [maxLength] 挡住把整段文章贴进一个标题字段。
+         */
         fun string(
             category: String,
             key: String,
             default: String,
             name: String,
             description: String,
-        ): SettingDefinition<String> = SettingDefinition(
-            category, key, SettingValueType.STRING, default, name, description,
-            parser = { it.ifEmpty { null } },
-            renderer = { it },
-        )
+            allowBlank: Boolean = false,
+            maxLength: Int = Int.MAX_VALUE,
+        ): SettingDefinition<String> {
+            require(allowBlank || default.isNotEmpty()) { "配置 $key 不允许为空，默认值却是空串" }
+            require(default.length <= maxLength) { "配置 $key 的默认值超过 $maxLength 个字符" }
+            return SettingDefinition(
+                category, key, SettingValueType.STRING, default, name, description,
+                parser = { raw -> raw.takeIf { (allowBlank || it.isNotEmpty()) && it.length <= maxLength } },
+                renderer = { it },
+            )
+        }
 
         /**
          * [min]/[max] 是**读取期**的护栏而不只是后台校验：后台可能被绕过（直接改库、

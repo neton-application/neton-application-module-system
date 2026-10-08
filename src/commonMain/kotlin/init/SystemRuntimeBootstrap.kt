@@ -29,6 +29,7 @@ object SystemRuntimeBootstrap {
         // 空注册表先绑上，业务模块在各自 bootstrap 里往里 register；
         // SystemSettingLogic 持有的是同一个实例，所以后注册的定义它也看得到。
         val configRegistry = setting.SettingDefinitionRegistry()
+        configRegistry.register(setting.SystemSettingKeys.definitions)
         ctx.bind(setting.SettingDefinitionRegistry::class, configRegistry)
         ctx.bind(
             logic.SystemSettingLogic::class,

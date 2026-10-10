@@ -4,10 +4,7 @@ import controller.admin.auth.dto.LoginRequest
 import controller.admin.auth.dto.LoginResponse
 import model.User
 import table.UserTable
-import table.UserRoleTable
-import table.RoleTable
-import model.UserRole
-import model.Role
+import security.AdminAuthorization
 import neton.security.jwt.JwtAuthenticator
 import neton.core.http.BadRequestException
 import neton.core.http.NotFoundException
@@ -51,21 +48,14 @@ class AuthLogic(
         }
 
         // Fetch user roles for the token
-        val userRoles = UserRoleTable.query {
-            where { UserRole::userId eq user.id }
-        }.list()
-        val roleIds = userRoles.map { it.roleId }
-        val roles = if (roleIds.isNotEmpty()) {
-            RoleTable.query {
-                where { Role::id `in` roleIds }
-            }.list().map { it.code }.toSet()
-        } else emptySet()
+        val authorization = permissionLogic?.resolveAuthorization(user.id)
+            ?: AdminAuthorization(emptySet(), emptySet())
 
         val accessToken = jwt.createToken(
             userId = UserId(user.id.toULong()),
-            roles = roles,
+            roles = authorization.roles,
             // P0 granular RBAC：把解析出的权限写进 access token（super→*:*:*，普通→role_menu 子集）。
-            permissions = permissionLogic?.resolvePermissions(user.id) ?: emptySet(),
+            permissions = authorization.permissions,
             expiresInSeconds = ACCESS_TOKEN_EXPIRES,
             extraClaims = mapOf("type" to "access", "username" to user.username)
         )
@@ -112,21 +102,14 @@ class AuthLogic(
         }
 
         // Fetch user roles
-        val userRoles = UserRoleTable.query {
-            where { UserRole::userId eq user.id }
-        }.list()
-        val roleIds = userRoles.map { it.roleId }
-        val roles = if (roleIds.isNotEmpty()) {
-            RoleTable.query {
-                where { Role::id `in` roleIds }
-            }.list().map { it.code }.toSet()
-        } else emptySet()
+        val authorization = permissionLogic?.resolveAuthorization(user.id)
+            ?: AdminAuthorization(emptySet(), emptySet())
 
         val newAccessToken = jwt.createToken(
             userId = UserId(user.id.toULong()),
-            roles = roles,
+            roles = authorization.roles,
             // P0 granular RBAC：把解析出的权限写进 access token（super→*:*:*，普通→role_menu 子集）。
-            permissions = permissionLogic?.resolvePermissions(user.id) ?: emptySet(),
+            permissions = authorization.permissions,
             expiresInSeconds = ACCESS_TOKEN_EXPIRES,
             extraClaims = mapOf("type" to "access", "username" to user.username)
         )
@@ -166,21 +149,14 @@ class AuthLogic(
         }
 
         // Fetch user roles
-        val userRoles = UserRoleTable.query {
-            where { UserRole::userId eq user.id }
-        }.list()
-        val roleIds = userRoles.map { it.roleId }
-        val roles = if (roleIds.isNotEmpty()) {
-            RoleTable.query {
-                where { Role::id `in` roleIds }
-            }.list().map { it.code }.toSet()
-        } else emptySet()
+        val authorization = permissionLogic?.resolveAuthorization(user.id)
+            ?: AdminAuthorization(emptySet(), emptySet())
 
         val accessToken = jwt.createToken(
             userId = UserId(user.id.toULong()),
-            roles = roles,
+            roles = authorization.roles,
             // P0 granular RBAC：把解析出的权限写进 access token（super→*:*:*，普通→role_menu 子集）。
-            permissions = permissionLogic?.resolvePermissions(user.id) ?: emptySet(),
+            permissions = authorization.permissions,
             expiresInSeconds = ACCESS_TOKEN_EXPIRES,
             extraClaims = mapOf("type" to "access", "username" to user.username)
         )
@@ -258,21 +234,14 @@ class AuthLogic(
         }
 
         // Fetch user roles
-        val userRoles = UserRoleTable.query {
-            where { UserRole::userId eq user.id }
-        }.list()
-        val roleIds = userRoles.map { it.roleId }
-        val roles = if (roleIds.isNotEmpty()) {
-            RoleTable.query {
-                where { Role::id `in` roleIds }
-            }.list().map { it.code }.toSet()
-        } else emptySet()
+        val authorization = permissionLogic?.resolveAuthorization(user.id)
+            ?: AdminAuthorization(emptySet(), emptySet())
 
         val accessToken = jwt.createToken(
             userId = UserId(user.id.toULong()),
-            roles = roles,
+            roles = authorization.roles,
             // P0 granular RBAC：把解析出的权限写进 access token（super→*:*:*，普通→role_menu 子集）。
-            permissions = permissionLogic?.resolvePermissions(user.id) ?: emptySet(),
+            permissions = authorization.permissions,
             expiresInSeconds = ACCESS_TOKEN_EXPIRES,
             extraClaims = mapOf("type" to "access", "username" to user.username)
         )

@@ -9,6 +9,8 @@ import model.Role
 import model.RoleMenu
 import model.UserRole
 import security.SuperAdminEvaluator
+import security.AdminAuthorization
+import security.resolveAdminAuthorization
 import table.MenuTable
 import table.RoleMenuTable
 import table.RoleTable
@@ -30,26 +32,23 @@ class PermissionLogic(
      * super_admin → 通配 `*:*:*`；普通角色 → 其 role_menu 对应的 `menu.permission`。
      * 这样 @Permission 请求时能从 token 里的 identity.permissions 精确判定（P0 granular RBAC）。
      */
-    suspend fun resolvePermissions(userId: Long): Set<String> {
+    suspend fun resolvePermissions(userId: Long): Set<String> = resolveAuthorization(userId).permissions
+
+    suspend fun resolveAuthorization(userId: Long): AdminAuthorization {
         val roleIds = UserRoleTable.query {
             where { UserRole::userId eq userId }
         }.list().map { it.roleId }
-        if (roleIds.isEmpty()) return emptySet()
-
-        val roleCodes = RoleTable.query {
+        val roles = if (roleIds.isEmpty()) emptyList() else RoleTable.query {
             where { Role::id `in` roleIds }
-        }.list().filter { it.status == 1 }.map { it.code }.toSet()
-
-        if (superAdminEvaluator.isSuperAdmin(roleCodes)) return setOf("*:*:*")
-
-        val menuIds = RoleMenuTable.query {
-            where { RoleMenu::roleId `in` roleIds }
-        }.list().map { it.menuId }
-        if (menuIds.isEmpty()) return emptySet()
-
-        return MenuTable.query {
-            where { and(Menu::id `in` menuIds, Menu::status eq 1) }
-        }.list().mapNotNull { it.permission?.takeIf { p -> p.isNotBlank() } }.toSet()
+        }.list()
+        return resolveAdminAuthorization(roles, superAdminEvaluator) { enabledRoleIds ->
+            val menuIds = RoleMenuTable.query {
+                where { RoleMenu::roleId `in` enabledRoleIds.toList() }
+            }.list().map { it.menuId }
+            if (menuIds.isEmpty()) emptySet() else MenuTable.query {
+                where { and(Menu::id `in` menuIds, Menu::status eq 1) }
+            }.list().mapNotNull { it.permission?.takeIf { p -> p.isNotBlank() } }.toSet()
+        }
     }
 
     suspend fun getPermissionInfo(userId: Long): PermissionInfoVO {
@@ -98,9 +97,10 @@ class PermissionLogic(
         val permissions = mutableListOf<String>()
         val menuIds = mutableSetOf<Long>()
 
-        if (roleIds.isNotEmpty()) {
+        val enabledRoleIds = roles.map { it.id }
+        if (enabledRoleIds.isNotEmpty()) {
             val roleMenus = RoleMenuTable.query {
-                where { RoleMenu::roleId `in` roleIds }
+                where { RoleMenu::roleId `in` enabledRoleIds }
             }.list()
 
             val allMenuIds = roleMenus.map { it.menuId }

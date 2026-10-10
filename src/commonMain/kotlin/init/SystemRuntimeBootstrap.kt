@@ -19,6 +19,7 @@ import logic.provider.*
 object SystemRuntimeBootstrap {
 
     fun initialize(ctx: NetonContext) {
+        ctx.bind(neton.core.interfaces.RequestAdmissionGate::class, security.NetworkAdmission.load(ctx))
         val loggerFactory = ctx.get(LoggerFactory::class)
         // ===== 创建共享服务 =====
         val jwt = ctx.getOrNull(JwtAuthenticator::class) ?: buildJwtAuthenticator(ctx)
@@ -82,7 +83,9 @@ object SystemRuntimeBootstrap {
         )
         ctx.bind(PermissionLogic::class, permissionLogic)
         // AuthLogic 登录时用 permissionLogic 解析权限写进 JWT（P0 granular RBAC）。
-        ctx.bind(AuthLogic::class, AuthLogic(loggerFactory.get("logic.auth"), jwt, permissionLogic, messageSendLogic, socialUserLogic))
+        val mfa = MfaLogic(ctx.get(neton.database.api.DbContext::class), neton.core.config.getEnv("NETON_MFA_MASTER_KEY"), loggerFactory.get("security.mfa"))
+        ctx.bind(MfaLogic::class, mfa)
+        ctx.bind(AuthLogic::class, AuthLogic(loggerFactory.get("logic.auth"), jwt, mfa, permissionLogic, messageSendLogic, socialUserLogic))
         ctx.bind(DictLogic::class, DictLogic(loggerFactory.get("logic.dict"), infra.SimpleCache()))
     }
 

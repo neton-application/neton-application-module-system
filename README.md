@@ -14,3 +14,6 @@ Neton canonical 核心模块：系统管理（用户/角色/菜单/部门/岗位
   模板正文首行 `Subject: …` 作主题，含 HTML 标签按 HTML 发。
 - 验证码：`MessageSendLogic.sendVerificationCode`（短信）/ `sendEmailCode`（邮件），码存 Redis 5 分钟，
   有模板走模板，没模板用启用的通道发默认文案，都没有只落 `system_message_logs`（dev）。
+# 网络准入
+
+管理端与会员端 IP 白名单配置见 [NETWORK_ADMISSION.md](./NETWORK_ADMISSION.md)。

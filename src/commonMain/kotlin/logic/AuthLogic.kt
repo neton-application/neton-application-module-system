@@ -19,6 +19,7 @@ import neton.security.password.PasswordHasher
 class AuthLogic(
     private val log: Logger,
     private val jwt: JwtAuthenticator,
+    private val mfa: MfaLogic,
     // 生产必传（module-system 已注入）；为空则退化 emptySet（仅框架 example 的极简构造）。
     private val permissionLogic: PermissionLogic? = null,
     private val messageSendLogic: MessageSendLogic? = null,
@@ -31,7 +32,7 @@ class AuthLogic(
     }
 
     suspend fun login(request: LoginRequest): LoginResponse {
-        val user = UserTable.oneWhere {
+        var user = UserTable.oneWhere {
             User::username eq request.username
         } ?: throw BadRequestException("Invalid username or password")
 
@@ -44,39 +45,11 @@ class AuthLogic(
             throw BadRequestException("Invalid username or password")
         }
         if (passwordVerification.needsRehash) {
-            UserTable.update(user.copy(passwordHash = PasswordHasher.hash(request.password)))
+            user = user.copy(passwordHash = PasswordHasher.hash(request.password))
+            UserTable.update(user)
         }
 
-        // Fetch user roles for the token
-        val authorization = permissionLogic?.resolveAuthorization(user.id)
-            ?: AdminAuthorization(emptySet(), emptySet())
-
-        val accessToken = jwt.createToken(
-            userId = UserId(user.id.toULong()),
-            roles = authorization.roles,
-            // P0 granular RBAC：把解析出的权限写进 access token（super→*:*:*，普通→role_menu 子集）。
-            permissions = authorization.permissions,
-            expiresInSeconds = ACCESS_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "access", "username" to user.username)
-        )
-        val refreshToken = jwt.createToken(
-            userId = UserId(user.id.toULong()),
-            roles = emptySet(),
-            permissions = emptySet(),
-            expiresInSeconds = REFRESH_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "refresh", "username" to user.username)
-        )
-
-        log.info("User logged in: ${user.username}")
-
-        return LoginResponse(
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            userId = user.id,
-            expiresTime = Clock.System.now().toEpochMilliseconds() + ACCESS_TOKEN_EXPIRES * 1000,
-            username = user.username,
-            nickname = user.nickname
-        )
+        return completeFirstFactor(user)
     }
 
     suspend fun logout(userId: Long) {
@@ -84,51 +57,48 @@ class AuthLogic(
     }
 
     suspend fun refreshToken(refreshToken: String): LoginResponse {
-        val verifiedToken = try {
-            jwt.verifyToken(refreshToken)
-        } catch (_: AuthenticationException) {
+        val verified = try { jwt.verifyToken(refreshToken) } catch (_: AuthenticationException) {
             throw BadRequestException("Invalid or expired refresh token")
         }
-        if (verifiedToken.claimString("type") != "refresh") {
-            throw BadRequestException("Invalid or expired refresh token")
+        val id = verified.identity.userId.value.toLong()
+        if (verified.claimString("type") != "refresh" ||
+            !mfa.accepts(id, verified.claimString("mfa_revision")?.toLongOrNull(), verified.claimString("mfa_verified") == "true")) {
+            throw BadRequestException("Login required")
         }
-        val userId = verifiedToken.identity.userId.value.toLong()
+        val user = UserTable.get(id) ?: throw BadRequestException("Login required")
+        if (user.status != 1) throw BadRequestException("Login required")
+        return issue(user, verified.claimString("mfa_verified") == "true", verified.claimString("mfa_revision")?.toLongOrNull() ?: 0)
+    }
 
-        val user = UserTable.get(userId)
-            ?: throw NotFoundException("User not found")
+    private suspend fun completeFirstFactor(user: User): LoginResponse {
+        val challenge = mfa.challenge(user.id, user.passwordHash)
+        if (challenge != null) return LoginResponse(
+            status = challenge.status, challengeToken = challenge.challengeToken,
+            challengeExpiresAt = challenge.challengeExpiresAt,
+        )
+        return issue(user, false, mfa.revision(user.id))
+    }
 
-        if (user.status == 0) {
-            throw BadRequestException("User account is disabled")
-        }
+    suspend fun verifyMfa(token: String, code: String): LoginResponse {
+        val completed = mfa.verify(token, code)
+        val user = UserTable.get(completed.userId) ?: throw BadRequestException("Login required")
+        if (user.status != 1) throw BadRequestException("Login required")
+        return issue(user, true, completed.revision)
+    }
 
-        // Fetch user roles
+    private suspend fun issue(user: User, mfaVerified: Boolean, revision: Long): LoginResponse {
+        if (!mfa.accepts(user.id, revision, mfaVerified)) throw BadRequestException("Login required")
         val authorization = permissionLogic?.resolveAuthorization(user.id)
             ?: AdminAuthorization(emptySet(), emptySet())
-
-        val newAccessToken = jwt.createToken(
-            userId = UserId(user.id.toULong()),
-            roles = authorization.roles,
-            // P0 granular RBAC：把解析出的权限写进 access token（super→*:*:*，普通→role_menu 子集）。
-            permissions = authorization.permissions,
-            expiresInSeconds = ACCESS_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "access", "username" to user.username)
-        )
-        val newRefreshToken = jwt.createToken(
-            userId = UserId(user.id.toULong()),
-            roles = emptySet(),
-            permissions = emptySet(),
-            expiresInSeconds = REFRESH_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "refresh", "username" to user.username)
-        )
-
-        return LoginResponse(
-            accessToken = newAccessToken,
-            refreshToken = newRefreshToken,
-            userId = user.id,
+        val claims = mapOf<String, Any>("username" to user.username, "mfa_revision" to revision, "mfa_verified" to mfaVerified)
+        val access = jwt.createToken(UserId(user.id.toULong()), authorization.roles, authorization.permissions,
+            ACCESS_TOKEN_EXPIRES, claims + ("type" to "access"))
+        val refresh = jwt.createToken(UserId(user.id.toULong()), emptySet(), emptySet(),
+            REFRESH_TOKEN_EXPIRES, claims + ("type" to "refresh"))
+        log.info("User authenticated: ${user.id} mfa=$mfaVerified")
+        return LoginResponse(accessToken = access, refreshToken = refresh, userId = user.id,
             expiresTime = Clock.System.now().toEpochMilliseconds() + ACCESS_TOKEN_EXPIRES * 1000,
-            username = user.username,
-            nickname = user.nickname
-        )
+            username = user.username, nickname = user.nickname)
     }
 
     suspend fun smsLogin(mobile: String, smsCode: String): LoginResponse {
@@ -148,36 +118,7 @@ class AuthLogic(
             throw BadRequestException("User account is disabled")
         }
 
-        // Fetch user roles
-        val authorization = permissionLogic?.resolveAuthorization(user.id)
-            ?: AdminAuthorization(emptySet(), emptySet())
-
-        val accessToken = jwt.createToken(
-            userId = UserId(user.id.toULong()),
-            roles = authorization.roles,
-            // P0 granular RBAC：把解析出的权限写进 access token（super→*:*:*，普通→role_menu 子集）。
-            permissions = authorization.permissions,
-            expiresInSeconds = ACCESS_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "access", "username" to user.username)
-        )
-        val refreshToken = jwt.createToken(
-            userId = UserId(user.id.toULong()),
-            roles = emptySet(),
-            permissions = emptySet(),
-            expiresInSeconds = REFRESH_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "refresh", "username" to user.username)
-        )
-
-        log.info("User SMS logged in: ${user.username}")
-
-        return LoginResponse(
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            userId = user.id,
-            expiresTime = Clock.System.now().toEpochMilliseconds() + ACCESS_TOKEN_EXPIRES * 1000,
-            username = user.username,
-            nickname = user.nickname
-        )
+        return completeFirstFactor(user)
     }
 
     suspend fun sendSmsCode(mobile: String, scene: String) {
@@ -233,35 +174,6 @@ class AuthLogic(
             throw BadRequestException("User account is disabled")
         }
 
-        // Fetch user roles
-        val authorization = permissionLogic?.resolveAuthorization(user.id)
-            ?: AdminAuthorization(emptySet(), emptySet())
-
-        val accessToken = jwt.createToken(
-            userId = UserId(user.id.toULong()),
-            roles = authorization.roles,
-            // P0 granular RBAC：把解析出的权限写进 access token（super→*:*:*，普通→role_menu 子集）。
-            permissions = authorization.permissions,
-            expiresInSeconds = ACCESS_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "access", "username" to user.username)
-        )
-        val refreshToken = jwt.createToken(
-            userId = UserId(user.id.toULong()),
-            roles = emptySet(),
-            permissions = emptySet(),
-            expiresInSeconds = REFRESH_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "refresh", "username" to user.username)
-        )
-
-        log.info("User social logged in: ${user.username} via $socialType")
-
-        return LoginResponse(
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            userId = user.id,
-            expiresTime = Clock.System.now().toEpochMilliseconds() + ACCESS_TOKEN_EXPIRES * 1000,
-            username = user.username,
-            nickname = user.nickname
-        )
+        return completeFirstFactor(user)
     }
 }

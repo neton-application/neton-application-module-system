@@ -31,11 +31,30 @@ class AuthController(
      * 浏览器端则完全不必经手它，Cookie 脚本读不到，XSS 也就偷不走会话。
      */
     private fun issueSession(http: HttpContext, response: LoginResponse) {
-        val ttlSeconds = ((response.expiresTime - nowMillis()) / 1000).coerceAtLeast(0)
-        SessionCookie.issue(ctx, http, response.accessToken, ttlSeconds)
+        http.response.header("Cache-Control", "no-store")
+        if (response.status != "authenticated") {
+            SessionCookie.clear(ctx, http)
+            return
+        }
+        val ttlSeconds = ((requireNotNull(response.expiresTime) - nowMillis()) / 1000).coerceAtLeast(0)
+        SessionCookie.issue(ctx, http, requireNotNull(response.accessToken), ttlSeconds)
     }
 
     private fun nowMillis(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
+
+    @Post("/mfa/enrollment")
+    @AllowAnonymous
+    @RateLimit(windowSeconds = 60, maxRequests = 10, scope = RateLimitScope.IP)
+    suspend fun enrollment(http: HttpContext, @Body request: MfaRequest): logic.MfaEnrollment {
+        http.response.header("Cache-Control", "no-store")
+        return ctx.get(logic.MfaLogic::class).enrollment(request.challengeToken)
+    }
+
+    @Post("/mfa/verify")
+    @AllowAnonymous
+    @RateLimit(windowSeconds = 60, maxRequests = 10, scope = RateLimitScope.IP)
+    suspend fun verifyMfa(http: HttpContext, @Body request: MfaRequest): LoginResponse =
+        authLogic.verifyMfa(request.challengeToken, request.code).also { issueSession(http, it) }
 
     @Post("/login")
     @AllowAnonymous
@@ -66,8 +85,8 @@ class AuthController(
     @Post("/sms-login")
     @AllowAnonymous
     @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "SMS login attempts exceeded, please try again later")
-    suspend fun smsLogin(@Body request: SmsLoginRequest): LoginResponse {
-        return authLogic.smsLogin(request.mobile, request.smsCode)
+    suspend fun smsLogin(http: HttpContext, @Body request: SmsLoginRequest): LoginResponse {
+        return authLogic.smsLogin(request.mobile, request.smsCode).also { issueSession(http, it) }
     }
 
     @Post("/send-sms-code")
@@ -94,7 +113,7 @@ class AuthController(
     @Post("/social-login")
     @AllowAnonymous
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Social login attempts exceeded, please try again later")
-    suspend fun socialLogin(@Body request: SocialLoginRequest): LoginResponse {
-        return authLogic.socialLogin(request.socialType, request.code, request.redirectUri ?: "")
+    suspend fun socialLogin(http: HttpContext, @Body request: SocialLoginRequest): LoginResponse {
+        return authLogic.socialLogin(request.socialType, request.code, request.redirectUri ?: "").also { issueSession(http, it) }
     }
 }

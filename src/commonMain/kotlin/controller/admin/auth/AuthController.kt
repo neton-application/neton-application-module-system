@@ -42,6 +42,41 @@ class AuthController(
 
     private fun nowMillis(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
 
+    /**
+     * 登录审计（评审 R18）：成功与失败都落 `system_login_logs`，此前这张表从没被写过。
+     * 地址取框架解析后的 clientAddress，与网络准入、限流一致。审计写失败不影响登录本身。
+     * 需要第二因子的中间态不记成功，等 MFA 验证完成再记。
+     */
+    private suspend fun <T : LoginResponse> audited(http: HttpContext, username: String?, block: suspend () -> T): T {
+        val result = try {
+            block()
+        } catch (e: Exception) {
+            recordLogin(http, username, null, LOGIN_FAILED)
+            throw e
+        }
+        if (result.status == "authenticated") recordLogin(http, result.username ?: username, result.userId, LOGIN_SUCCEEDED)
+        return result
+    }
+
+    private suspend fun recordLogin(http: HttpContext, username: String?, userId: Long?, result: Int) {
+        runCatching {
+            ctx.get(logic.LogLogic::class).recordLoginLog(
+                model.LoginLog(
+                    userId = userId,
+                    username = username?.take(64),
+                    userIp = http.request.clientAddress,
+                    userAgent = http.request.userAgent?.take(512),
+                    loginResult = result,
+                ),
+            )
+        }
+    }
+
+    private companion object {
+        const val LOGIN_SUCCEEDED = 0
+        const val LOGIN_FAILED = 1
+    }
+
     @Post("/mfa/enrollment")
     @AllowAnonymous
     @RateLimit(windowSeconds = 60, maxRequests = 10, scope = RateLimitScope.IP)
@@ -54,19 +89,26 @@ class AuthController(
     @AllowAnonymous
     @RateLimit(windowSeconds = 60, maxRequests = 10, scope = RateLimitScope.IP)
     suspend fun verifyMfa(http: HttpContext, @Body request: MfaRequest): LoginResponse =
-        authLogic.verifyMfa(request.challengeToken, request.code).also { issueSession(http, it) }
+        audited(http, null) { authLogic.verifyMfa(request.challengeToken, request.code) }.also { issueSession(http, it) }
 
     @Post("/login")
     @AllowAnonymous
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Login attempts exceeded, please try again later")
     suspend fun login(http: HttpContext, @Body request: LoginRequest): LoginResponse {
-        return authLogic.login(request).also { issueSession(http, it) }
+        return audited(http, request.username) { authLogic.login(request) }.also { issueSession(http, it) }
     }
 
     @Post("/logout")
     suspend fun logout(http: HttpContext, identity: Identity) {
         val userId = identity.id.toLong()
         authLogic.logout(userId, (identity as? security.RealmIdentity)?.sessionId)
+        SessionCookie.clear(ctx, http)
+    }
+
+    /** 全端退出：作废该管理员在所有设备上的会话（含当前会话）。 */
+    @Post("/logout-all")
+    suspend fun logoutAll(http: HttpContext, identity: Identity) {
+        authLogic.revokeAllSessions(identity.id.toLong())
         SessionCookie.clear(ctx, http)
     }
 
@@ -87,7 +129,7 @@ class AuthController(
     @AllowAnonymous
     @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "SMS login attempts exceeded, please try again later")
     suspend fun smsLogin(http: HttpContext, @Body request: SmsLoginRequest): LoginResponse {
-        return authLogic.smsLogin(request.mobile, request.smsCode).also { issueSession(http, it) }
+        return audited(http, null) { authLogic.smsLogin(request.mobile, request.smsCode) }.also { issueSession(http, it) }
     }
 
     @Post("/send-sms-code")

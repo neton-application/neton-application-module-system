@@ -19,6 +19,7 @@ import logic.provider.*
 object SystemRuntimeBootstrap {
 
     fun initialize(ctx: NetonContext) {
+        config.requireSupportedDatabase(ctx)
         ctx.bind(neton.core.interfaces.RequestAdmissionGate::class, security.NetworkAdmission.load(ctx))
         val loggerFactory = ctx.get(LoggerFactory::class)
         // ===== 创建共享服务 =====
@@ -101,9 +102,20 @@ object SystemRuntimeBootstrap {
             log = loggerFactory.get("logic.auth"), jwt = jwt, mfa = mfa,
             verificationCodes = verificationCodes, socialUserLogic = socialUserLogic,
             sessions = adminSessionLogic, revocation = sessionRevocation,
-            throttle = security.LoginThrottle(redis),
+            throttle = security.LoginThrottle(redis, loginThrottleKey(ctx)),
         ))
         ctx.bind(DictLogic::class, DictLogic(loggerFactory.get("logic.dict"), infra.SimpleCache()))
     }
 
 }
+
+/**
+ * 登录冷却键的摘要密钥：从 JWT 密钥派生并加用途前缀，账号标识不会以明文进入缓存键。
+ * account 模块用同一个函数，两个身份域的键空间仍由 realm 前缀区分。
+ */
+fun loginThrottleKey(ctx: NetonContext): ByteArray =
+    neton.security.crypto.HmacSha256.sign(
+        config.loadJwtRuntimeConfig(ctx).secretKey.encodeToByteArray(),
+        "neton.login-throttle.v1".encodeToByteArray(),
+    )
+

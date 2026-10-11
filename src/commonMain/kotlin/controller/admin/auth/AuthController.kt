@@ -95,7 +95,9 @@ class AuthController(
     @AllowAnonymous
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Login attempts exceeded, please try again later")
     suspend fun login(http: HttpContext, @Body request: LoginRequest): LoginResponse {
-        return audited(http, request.username) { authLogic.login(request) }.also { issueSession(http, it) }
+        return audited(http, request.username) {
+            authLogic.login(request, http.request.clientAddress)
+        }.also { issueSession(http, it) }
     }
 
     @Post("/logout")

@@ -111,6 +111,7 @@ fun loadSuperAdminCodes(ctx: NetonContext): Set<String> {
  * - `simulate`：没有短信 / 邮件通道时只存不发，仅供本地联调；生产必须为 false（默认）。
  * - `resend_cooldown_seconds`：同一接收方两次发码的最短间隔，默认 60。
  * - `daily_limit_per_recipient`：同一接收方每天最多发码次数，默认 10。
+ * - `daily_limit_global`：每个通道全站每天最多发码条数，0（默认）= 不限；生产建议按短信预算设置。
  */
 fun loadVerificationSettings(ctx: NetonContext): logic.VerificationCodeService.Settings {
     val appConfig = ConfigLoader.loadApplicationConfig(
@@ -126,5 +127,28 @@ fun loadVerificationSettings(ctx: NetonContext): logic.VerificationCodeService.S
             ConfigLoader.getBoolean(appConfig, "security.verification.simulate"),
         resendCooldownSeconds = long("security.verification.resend_cooldown_seconds", defaults.resendCooldownSeconds),
         dailyLimitPerRecipient = long("security.verification.daily_limit_per_recipient", defaults.dailyLimitPerRecipient),
+        dailyLimitGlobal = long("security.verification.daily_limit_global", defaults.dailyLimitGlobal),
     )
+}
+
+/**
+ * 发行版的数据库支持矩阵（评审 R17）：**只支持 PostgreSQL**。
+ *
+ * 各模块的迁移脚本只有 `sql/postgresql/`，MFA、会话版本等也用到 PostgreSQL 的
+ * `ON CONFLICT` / `FOR UPDATE`。配成别的驱动时表根本建不出来，不能让它带着残缺的表启动，
+ * 所以在 system 初始化时直接拒绝，并说清楚原因。
+ */
+fun requireSupportedDatabase(ctx: NetonContext) {
+    val config = ConfigLoader.loadModuleConfig(
+        moduleName = "database",
+        configPath = APP_CONFIG_PATH,
+        environment = ConfigLoader.resolveEnvironment(ctx.args),
+        args = ctx.args,
+    ) ?: return
+    @Suppress("UNCHECKED_CAST")
+    val driver = ((config["default"] as? Map<String, Any?>)?.get("driver") as? String)?.trim()?.uppercase() ?: return
+    check(driver == "POSTGRESQL") {
+        "Unsupported database driver '$driver'. This distribution supports PostgreSQL only: module migrations " +
+            "exist only for PostgreSQL and security features rely on its locking semantics. Set [default] driver = \"POSTGRESQL\" in database.conf."
+    }
 }

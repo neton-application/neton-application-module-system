@@ -49,18 +49,22 @@ class AuthLogic(
      * - 用户不存在时也做一次等价的哈希校验，响应时间不暴露账号是否存在；
      * - 按账号计失败次数，连续失败后冷却，挡住换 IP 慢速猜密码。
      */
-    suspend fun login(request: LoginRequest): LoginResponse {
-        throttle.ensureNotLocked(AdminTokenRealm.NAME, request.username)
+    suspend fun login(request: LoginRequest, clientIp: String? = null): LoginResponse {
+        throttle.ensureNotLocked(AdminTokenRealm.NAME, request.username, clientIp)
         val found = UserTable.oneWhere { User::username eq request.username }
         val verification = PasswordHasher.verify(request.password, found?.passwordHash ?: dummyHash)
         if (found == null || !verification.verified || found.status != 1) {
-            throttle.recordFailure(AdminTokenRealm.NAME, request.username)
+            val accountFailures = throttle.recordFailure(AdminTokenRealm.NAME, request.username, clientIp)
             log.info("auth.admin.login_failed", mapOf("reason" to when {
                 found == null -> "unknown_user"; !verification.verified -> "bad_password"; else -> "disabled"
             }))
+            // 跨来源的失败只记安全事件，不锁号（spec auth-abuse-protection §4.1）。
+            if (accountFailures == LoginThrottle.ACCOUNT_RISK_THRESHOLD) {
+                log.warn("security.login.account_risk", mapOf("realm" to AdminTokenRealm.NAME, "userId" to (found?.id ?: 0L)))
+            }
             throw BadRequestException(LOGIN_FAILED)
         }
-        throttle.reset(AdminTokenRealm.NAME, request.username)
+        throttle.reset(AdminTokenRealm.NAME, request.username, clientIp)
         var user: User = found
         if (verification.needsRehash) {
             user = user.copy(passwordHash = PasswordHasher.hash(request.password))

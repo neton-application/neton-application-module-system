@@ -18,7 +18,8 @@ import kotlin.time.Duration.Companion.seconds
  * - 挑战按「身份域 + 用途 + 通道 + 接收方」隔离，码只能用于发它的那个用途。
  * - 核验、消费、记错在一个 Lua 脚本里原子完成；同一个码猜错 [MAX_FAILS] 次即作废，
  *   失败计数跟着挑战走，换 IP、换入口都共享同一份预算。
- * - 发送有冷却与每日上限，防止被拿来轰炸手机号或刷短信费。
+ * - 发送有冷却、按接收方的每日上限和按通道的全局每日预算，防止被拿来轰炸手机号或刷短信费。
+ * - 登录后才能发的码（绑定邮箱、换绑手机）可以绑定发起人 [actor]：别的账号拿到同一个码也用不了。
  * - 码不进任何日志（[MessageSendLogic] 写发送记录前会脱敏）。没有配置发送通道时不假装发送成功：
  *   直接报服务不可用；只有显式打开 [simulate] 的开发环境才只存不发。
  */
@@ -39,19 +40,21 @@ class VerificationCodeService(
         val resendCooldownSeconds: Long = 60,
         /** 同一接收方每天最多发几次。 */
         val dailyLimitPerRecipient: Long = 10,
+        /** 每个通道全站每天最多发几条（短信费的硬上限）。0 = 不限。 */
+        val dailyLimitGlobal: Long = 0,
     )
 
     /**
      * 发一条验证码。[templateCode] 是消息模板编码（沿用各部署里已经配好的模板名）。
      * 发送失败或通道缺失时抛出，挑战不会留下 —— 用户看到的是真实的失败，而不是一条永远收不到的码。
      */
-    suspend fun issue(realm: String, purpose: String, channel: Channel, recipient: String, templateCode: String) {
+    suspend fun issue(realm: String, purpose: String, channel: Channel, recipient: String, templateCode: String, actor: String? = null) {
         val r = redis ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, "VERIFICATION_UNAVAILABLE")
         val to = normalize(channel, recipient)
         reserveSendBudget(r, channel, to)
 
         val code = Random.Default.nextInt(100000, 1000000).toString()
-        val key = challengeKey(realm, purpose, channel, to)
+        val key = challengeKey(realm, purpose, channel, to, actor)
         r.set(key, code, ttl = CODE_TTL_SECONDS.seconds)
         r.delete(failsKey(key))
 
@@ -73,9 +76,9 @@ class VerificationCodeService(
     }
 
     /** 核验并消费。成功一次即删除；猜错计数，到上限作废整条挑战。 */
-    suspend fun verify(realm: String, purpose: String, channel: Channel, recipient: String, code: String): Result {
+    suspend fun verify(realm: String, purpose: String, channel: Channel, recipient: String, code: String, actor: String? = null): Result {
         val r = redis ?: return Result.EXPIRED
-        val key = challengeKey(realm, purpose, channel, normalize(channel, recipient))
+        val key = challengeKey(realm, purpose, channel, normalize(channel, recipient), actor)
         val script = """
             local val = redis.call('GET', KEYS[1])
             if val == false then return 0 end
@@ -100,8 +103,8 @@ class VerificationCodeService(
     }
 
     /** 某个用途下是否有尚未用掉的码（一个入口接受多种用途时，按此选用哪一条）。 */
-    suspend fun hasPending(realm: String, purpose: String, channel: Channel, recipient: String): Boolean =
-        redis?.getValue(challengeKey(realm, purpose, channel, normalize(channel, recipient))) != null
+    suspend fun hasPending(realm: String, purpose: String, channel: Channel, recipient: String, actor: String? = null): Boolean =
+        redis?.getValue(challengeKey(realm, purpose, channel, normalize(channel, recipient), actor)) != null
 
     /** 冷却与每日上限。先占冷却位再计数，两个并发请求只有一个能通过冷却。 */
     private suspend fun reserveSendBudget(r: RedisClient, channel: Channel, to: String) {
@@ -110,20 +113,27 @@ class VerificationCodeService(
         ) {
             throw HttpException(NetonErrorCode.RATE_LIMIT_EXCEEDED, "VERIFICATION_TOO_FREQUENT")
         }
-        if (settings.dailyLimitPerRecipient > 0) {
-            val day = Clock.System.now().toEpochMilliseconds() / 86_400_000
-            val dailyKey = "vc:daily:${channel.key}:$to:$day"
-            val count = r.evalToLong(
-                "local n = redis.call('INCR', KEYS[1]) if n == 1 then redis.call('EXPIRE', KEYS[1], 90000) end return n",
-                listOf(dailyKey), emptyList(),
-            ) ?: 0
-            if (count > settings.dailyLimitPerRecipient) {
-                throw HttpException(NetonErrorCode.DAILY_QUOTA_EXCEEDED, "VERIFICATION_DAILY_LIMIT")
-            }
+        val day = Clock.System.now().toEpochMilliseconds() / 86_400_000
+        if (settings.dailyLimitPerRecipient > 0 &&
+            countToday(r, "vc:daily:${channel.key}:$to:$day") > settings.dailyLimitPerRecipient
+        ) {
+            throw HttpException(NetonErrorCode.DAILY_QUOTA_EXCEEDED, "VERIFICATION_DAILY_LIMIT")
+        }
+        if (settings.dailyLimitGlobal > 0 &&
+            countToday(r, "vc:daily:${channel.key}:*:$day") > settings.dailyLimitGlobal
+        ) {
+            log.warn("verification.global_budget_exhausted", mapOf("channel" to channel.key, "limit" to settings.dailyLimitGlobal))
+            throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, "VERIFICATION_DAILY_BUDGET_EXHAUSTED")
         }
     }
 
-    private fun challengeKey(realm: String, purpose: String, channel: Channel, to: String) = "vc:$realm:$purpose:${channel.key}:$to"
+    private suspend fun countToday(r: RedisClient, key: String): Long = r.evalToLong(
+        "local n = redis.call('INCR', KEYS[1]) if n == 1 then redis.call('EXPIRE', KEYS[1], 90000) end return n",
+        listOf(key), emptyList(),
+    ) ?: 0
+
+    private fun challengeKey(realm: String, purpose: String, channel: Channel, to: String, actor: String?) =
+        if (actor == null) "vc:$realm:$purpose:${channel.key}:$to" else "vc:$realm:$purpose:${channel.key}:@$actor:$to"
     private fun failsKey(key: String) = "$key:fails"
     private fun normalize(channel: Channel, recipient: String) =
         if (channel == Channel.EMAIL) recipient.trim().lowercase() else recipient.trim()

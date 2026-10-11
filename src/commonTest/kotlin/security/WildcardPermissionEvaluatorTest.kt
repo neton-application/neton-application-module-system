@@ -104,4 +104,33 @@ class WildcardPermissionEvaluatorTest {
         assertFalse(evaluator.allowed(plainId, "system::query", ctx), "empty middle segment must be rejected")
         assertFalse(evaluator.allowed(plainId, "system:user:list:extra", ctx), "four-segment required must be rejected")
     }
+
+    /**
+     * 与前端 `@neton/application-front-runtime` 的 permission.test.mts 同一组向量（评审 R16）：
+     * 前后端对同一个权限串必须给出同样的结论，否则按钮显示与实际授权会对不上。改动任何一边都要两边一起改。
+     */
+    @Test
+    fun `shared vectors with the front-end matcher`() {
+        val cases = listOf(
+            Triple(listOf("*:*:*"), "system:user:query", true),
+            Triple(listOf("system:*:*"), "system:user:query", true),
+            Triple(listOf("system:user:*"), "system:user:query", true),
+            Triple(listOf("system:user:query"), "system:user:query", true),
+            Triple(listOf("system:user:query"), "system:user:update", false),
+            Triple(listOf("system:role:*"), "system:user:query", false),
+            Triple(listOf("payment:*:*"), "system:user:query", false),
+            Triple(listOf("*"), "system:user:query", false),
+            Triple(listOf("system:*:query"), "system:user:query", false),
+            Triple(listOf("*:user:query"), "system:user:query", false),
+            Triple(listOf("*:*:query"), "system:user:query", false),
+            Triple(listOf("system:user:*"), "system:user", false),
+            Triple(listOf("system:user:*"), "system:user:*", false),
+            Triple(listOf("system:user:*"), "system::query", false),
+            Triple(emptyList(), "system:user:query", false),
+        )
+        for ((granted, required, expected) in cases) {
+            val actual = evaluator.allowed(identity(*granted.toTypedArray()), required, ctx)
+            kotlin.test.assertEquals(expected, actual, "$granted vs $required")
+        }
+    }
 }

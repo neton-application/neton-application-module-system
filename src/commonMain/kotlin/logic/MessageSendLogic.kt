@@ -8,77 +8,60 @@ import neton.core.http.NotFoundException
 import neton.logging.Logger
 import neton.database.dsl.*
 
-import neton.redis.RedisClient
-import kotlin.random.Random
 import kotlin.time.Clock
-import kotlin.time.Duration.Companion.seconds
 
+/**
+ * 消息投递：按模板 / 通道把内容发出去并写发送记录。
+ *
+ * 验证码不在这里生成、存储或核验 —— 那是 [VerificationCodeService] 的事；这里只负责把它送达。
+ * 发送记录里不允许出现秘密：投递验证码时，正文与参数里的码在落库前替换成 [REDACTED]（评审 R07）。
+ */
 class MessageSendLogic(
     private val log: Logger,
     private val messageChannelLogic: MessageChannelLogic,
     private val messageTemplateLogic: MessageTemplateLogic,
-    private val redis: RedisClient? = null
 ) {
 
-    companion object {
-        private const val SMS_CODE_PREFIX = "sms:code:"
-        private const val SMS_CODE_TTL_SECONDS = 300L  // 5 minutes
-        private const val MAIL_CODE_PREFIX = "mail:code:"
-    }
+    enum class Delivery { SENT, FAILED, UNCONFIGURED }
 
     /**
-     * 邮件验证码：码进 Redis（5 分钟）；有模板 `mail_verification_<scene>` 走模板，没有就用任一启用的
-     * 邮箱账号发一封默认文案；两者都没有则只落 dev 日志（与短信一致，方便本地联调从日志取码）。
+     * 投递一条验证码。优先用模板 [templateCode]；邮件没有模板时退回到任一启用的邮箱通道发默认文案。
+     * 都没有 → [Delivery.UNCONFIGURED]，由调用方决定报错还是（开发环境）模拟。
      */
-    suspend fun sendEmailCode(email: String, scene: String): Boolean {
-        val code = Random.nextInt(100000, 999999).toString()
-        val key = "$MAIL_CODE_PREFIX${email.lowercase()}"
-        if (redis != null) redis.set(key, code, SMS_CODE_TTL_SECONDS.seconds)
-        else log.warn("mail.code.redis_unavailable scene=$scene")
-        val templateCode = "mail_verification_$scene"
+    suspend fun deliverCode(channelType: String, receiver: String, templateCode: String, code: String): Delivery {
         val template = runCatching { messageTemplateLogic.getByCode(templateCode) }.getOrNull()
-        if (template != null) return sendByTemplate(templateCode, email, mapOf("code" to code))
-        val channel = messageChannelLogic.listRawByType("email").firstOrNull { it.status == 1 }
-        if (channel != null) {
-            val provider = messageChannelLogic.getProvider("email") ?: return false
-            val content = "Subject: 验证码\n您的验证码是 $code，5 分钟内有效。如非本人操作请忽略。"
-            return try {
-                val ok = provider.send(email, content, channel.config ?: "{}")
-                logMessage(channel.id, null, templateCode, email, "验证码邮件", mapOf("scene" to scene).toString(), if (ok) 0 else 1, null, null, 0)
-                ok
-            } catch (e: Exception) {
-                log.error("mail.code.send_failed scene=$scene: ${e.message}")
-                logMessage(channel.id, null, templateCode, email, "验证码邮件", mapOf("scene" to scene).toString(), 1, e.message, null, 0)
-                false
-            }
+        if (template != null) {
+            return if (sendByTemplate(templateCode, receiver, mapOf("code" to code), redact = setOf(code))) Delivery.SENT else Delivery.FAILED
         }
-        logMessage(0L, null, templateCode, email, "[DEV] code=$code", mapOf("code" to code, "scene" to scene).toString(), 0, null, null, 0)
-        return true
-    }
-
-    suspend fun verifyEmailCode(email: String, code: String): Boolean {
-        if (redis == null) return false
-        val key = "$MAIL_CODE_PREFIX${email.lowercase()}"
-        val stored = redis.getValue(key)
-        if (stored == null || stored != code) return false
-        redis.delete(key)
-        return true
-    }
-
-    private fun maskMobile(mobile: String): String {
-        return if (mobile.length < 7) "***" else "${mobile.take(3)}****${mobile.takeLast(4)}"
+        if (channelType != "email") return Delivery.UNCONFIGURED
+        val channel = messageChannelLogic.listRawByType("email").firstOrNull { it.status == 1 } ?: return Delivery.UNCONFIGURED
+        val provider = messageChannelLogic.getProvider("email") ?: return Delivery.UNCONFIGURED
+        val content = "Subject: 验证码\n您的验证码是 $code，5 分钟内有效。如非本人操作请忽略。"
+        val logged = content.replace(code, REDACTED)
+        return try {
+            val ok = provider.send(receiver, content, channel.config ?: "{}")
+            logMessage(channel.id, null, templateCode, receiver, logged, null, if (ok) 0 else 1, null, null, 0)
+            if (ok) Delivery.SENT else Delivery.FAILED
+        } catch (e: Exception) {
+            log.error("message.code.send_failed", mapOf("channel" to "email", "error" to (e.message ?: "")))
+            logMessage(channel.id, null, templateCode, receiver, logged, null, 1, e.message, null, 0)
+            Delivery.FAILED
+        }
     }
 
     /**
      * Send a message using a template code and parameters.
      * Flow: lookup template → lookup channel → render content → send via provider → log result
+     *
+     * [redact] 里的值（如验证码）在写发送记录前从正文和参数里抹掉；发送本身用原文。
      */
     suspend fun sendByTemplate(
         templateCode: String,
         receiver: String,
         params: Map<String, String>,
         userId: Long? = null,
-        userType: Int = 0
+        userType: Int = 0,
+        redact: Set<String> = emptySet(),
     ): Boolean {
         val template = messageTemplateLogic.getByCode(templateCode)
             ?: throw NotFoundException("Message template not found: $templateCode")
@@ -91,90 +74,22 @@ class MessageSendLogic(
         val provider = messageChannelLogic.getProvider(channel.type)
             ?: throw NotFoundException("No provider for channel type: ${channel.type}")
 
+        val loggedContent = redact.fold(content) { acc, secret -> if (secret.isEmpty()) acc else acc.replace(secret, REDACTED) }
+        val loggedParams = params.mapValues { (_, v) -> if (v in redact) REDACTED else v }.toString()
+
         val success = try {
             provider.send(receiver, content, channel.config ?: "{}")
         } catch (e: Exception) {
-            log.error("Failed to send message via ${channel.type}: ${e.message}")
-            // Log failure
-            logMessage(channel.id, template.id, templateCode, receiver, content,
-                params.toString(), 1, e.message, userId, userType)
+            log.error("message.send_failed", mapOf("channel" to channel.type, "template" to templateCode, "error" to (e.message ?: "")))
+            logMessage(channel.id, template.id, templateCode, receiver, loggedContent,
+                loggedParams, 1, e.message, userId, userType)
             return false
         }
 
-        // Log success
-        logMessage(channel.id, template.id, templateCode, receiver, content,
-            params.toString(), if (success) 0 else 1, null, userId, userType)
+        logMessage(channel.id, template.id, templateCode, receiver, loggedContent,
+            loggedParams, if (success) 0 else 1, null, userId, userType)
 
         return success
-    }
-
-    /**
-     * Send a verification code via SMS. Generates a 6-digit code,
-     * stores it in Redis with TTL, and sends via the SMS channel.
-     *
-     * 无论是否配置了 SMS channel / template，都会写一条 [MessageLog] 记录，便于后台
-     * `/system/sms-log` 审计查询。dev / 无模板场景：channelId=0，content 包含明文
-     * code 以便排查（生产环境应配置真实 channel + 模板）。
-     */
-    suspend fun sendVerificationCode(mobile: String, scene: String = "login"): Boolean {
-        val code = Random.nextInt(100000, 999999).toString()
-        val templateCode = "sms_verification_$scene"
-
-        // Store code in Redis
-        if (redis != null) {
-            redis.set("$SMS_CODE_PREFIX$mobile", code, SMS_CODE_TTL_SECONDS.seconds)
-            log.info("sms.code.generated", mapOf("mobile" to maskMobile(mobile), "scene" to scene))
-        } else {
-            log.warn("sms.code.redis_unavailable", mapOf("mobile" to maskMobile(mobile), "scene" to scene))
-        }
-
-        // Try to send via template if configured (production path)
-        try {
-            val template = messageTemplateLogic.getByCode(templateCode)
-            if (template != null) {
-                return sendByTemplate(
-                    templateCode = templateCode,
-                    receiver = mobile,
-                    params = mapOf("code" to code)
-                )
-            }
-        } catch (e: Exception) {
-            log.warn("No SMS template configured for scene=$scene, code stored in Redis only")
-        }
-
-        // Fallback / dev path: 无 channel + 模板时也落 message_log，便于 `/system/sms-log`
-        // 后台审计能看到验证码发送记录。channelId=0 + sendStatus=0 标记 dev mode。
-        logMessage(
-            channelId = 0L,
-            templateId = null,
-            templateCode = templateCode,
-            receiver = mobile,
-            content = "[DEV] code=$code",
-            params = mapOf("code" to code, "scene" to scene).toString(),
-            sendStatus = 0,
-            errorMessage = null,
-            userId = null,
-            userType = 0,
-        )
-
-        return true
-    }
-
-    /**
-     * Verify a SMS code from Redis.
-     */
-    suspend fun verifySmsCode(mobile: String, code: String): Boolean {
-        if (redis == null) {
-            log.warn("Redis not available, cannot verify SMS code")
-            return false
-        }
-        val storedCode = redis.getValue("$SMS_CODE_PREFIX$mobile")
-        if (storedCode == null || storedCode != code) {
-            return false
-        }
-        // Delete code after successful verification
-        redis.delete("$SMS_CODE_PREFIX$mobile")
-        return true
     }
 
     private suspend fun logMessage(
@@ -207,5 +122,9 @@ class MessageSendLogic(
         } catch (e: Exception) {
             log.error("Failed to log message: ${e.message}")
         }
+    }
+
+    companion object {
+        const val REDACTED = "******"
     }
 }

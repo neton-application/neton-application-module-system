@@ -7,14 +7,13 @@ import neton.core.http.HttpContext
 /**
  * 后台会话 Cookie（HttpOnly）。
  *
- * 为什么要有它：管理后台是纯前端应用，把 access token 放 localStorage 意味着任何一次
- * XSS 都能把它读走并带走整个会话。HttpOnly Cookie 脚本读不到，浏览器自动附带，
- * 前端根本不需要经手 token。
+ * 管理后台不在 localStorage 里保存令牌：HttpOnly Cookie 脚本读不到，浏览器自动附带。
+ * 注意它只解决「令牌被持久化后被读走」，不等于 XSS 无害 —— 登录 / 刷新响应体里仍有令牌
+ * （供移动端与 vben 等走 `Authorization` 头的客户端使用），页面脚本照样能发起请求。
  *
- * 传输是应用层关切，不是框架关切：框架的 [neton.security.jwt.JwtAuthenticator] 按
- * spec 冻结成「只读某个请求头」，这里不去改它，而是在应用的认证桥里把 Cookie 补成
- * 那个头（见 CoreAuthenticatorBridge）。因此 Header 与 Cookie 两种方式同时成立 ——
- * 移动端/服务间调用继续用 `Authorization`，浏览器用 Cookie。
+ * 传输是应用层关切：框架 JwtAuthenticator 按 spec 只读请求头，由 [security.RealmAuthenticator]
+ * 把 Cookie 补成那个头。凭 Cookie 认证的写请求还必须带 [security.RealmAuthenticator.CSRF_HEADER]
+ * （评审 R09）。
  */
 object SessionCookie {
 
@@ -35,18 +34,29 @@ object SessionCookie {
         ConfigLoader.getString(config(ctx), NAME_PATH)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_NAME
 
     /**
-     * `Secure` 默认关闭。
+     * `Secure`：`auto`（默认）/ `true` / `false`。
      *
-     * 后台目前经 `http://ip:port` 访问（域名备案前的既定形态），默认开 Secure 会让
-     * 浏览器直接丢弃这个 Cookie，表现为「登录成功但立刻又跳回登录页」，且没有任何
-     * 报错。上 HTTPS 后用 `security.session_cookie.secure = true` 打开。
+     * `auto` 按请求实际到达的方式决定：经 HTTPS（直连 TLS，或反代声明 `X-Forwarded-Proto: https`）
+     * 才加 Secure。后台在 `http://ip:port` 访问的部署照常工作，上了 HTTPS 自动生效，不必记得改配置。
+     * 转发头只能影响发请求的人自己拿到的 Cookie 属性，伪造它得不到任何东西。
      */
-    private fun secure(ctx: NetonContext): Boolean =
-        ConfigLoader.getString(config(ctx), SECURE_PATH)?.trim()?.lowercase() == "true"
+    private fun secure(ctx: NetonContext, http: HttpContext): Boolean =
+        when (val mode = ConfigLoader.getString(config(ctx), SECURE_PATH)?.trim()?.lowercase() ?: "auto") {
+            "true" -> true
+            "false" -> false
+            "auto" -> http.request.isSecure ||
+                http.request.header("X-Forwarded-Proto")?.substringBefore(',')?.trim()?.lowercase() == "https"
+            else -> error("$SECURE_PATH must be auto, true or false, got '$mode'")
+        }
 
-    /** `Lax` 足以挡掉跨站表单提交，又不影响后台自身的同源请求。 */
-    private fun sameSite(ctx: NetonContext): String =
-        ConfigLoader.getString(config(ctx), SAME_SITE_PATH)?.trim()?.takeIf { it.isNotEmpty() } ?: "Lax"
+    /** `Lax` 足以挡掉跨站表单提交，又不影响后台自身的同源请求。取值必须是 Strict / Lax / None。 */
+    private fun sameSite(ctx: NetonContext): String {
+        val raw = ConfigLoader.getString(config(ctx), SAME_SITE_PATH)?.trim()?.takeIf { it.isNotEmpty() } ?: "Lax"
+        return SAME_SITE_VALUES.firstOrNull { it.equals(raw, ignoreCase = true) }
+            ?: error("$SAME_SITE_PATH must be one of $SAME_SITE_VALUES, got '$raw'")
+    }
+
+    private val SAME_SITE_VALUES = listOf("Strict", "Lax", "None")
 
     /** 从 `Cookie` 请求头里取出会话 token；没有返回 null。 */
     fun read(cookieHeader: String?, name: String): String? {
@@ -62,19 +72,23 @@ object SessionCookie {
     }
 
     fun issue(ctx: NetonContext, http: HttpContext, token: String, maxAgeSeconds: Long) {
-        http.response.header("Set-Cookie", build(ctx, token, maxAgeSeconds))
+        http.response.header("Set-Cookie", build(ctx, http, token, maxAgeSeconds))
     }
 
     fun clear(ctx: NetonContext, http: HttpContext) {
-        http.response.header("Set-Cookie", build(ctx, "", 0))
+        http.response.header("Set-Cookie", build(ctx, http, "", 0))
     }
 
-    private fun build(ctx: NetonContext, value: String, maxAgeSeconds: Long): String = buildString {
+    private fun build(ctx: NetonContext, http: HttpContext, value: String, maxAgeSeconds: Long): String = buildString {
+        val sameSite = sameSite(ctx)
+        val secure = secure(ctx, http)
+        // 浏览器会丢弃 SameSite=None 但没有 Secure 的 Cookie：与其让登录「成功了却立刻掉线」，不如直接报配置错。
+        check(sameSite != "None" || secure) { "$SAME_SITE_PATH = None requires a Secure cookie (serve the admin over HTTPS)" }
         append(name(ctx)).append('=').append(value)
         append("; Path=/")
         append("; HttpOnly")
-        append("; SameSite=").append(sameSite(ctx))
+        append("; SameSite=").append(sameSite)
         append("; Max-Age=").append(maxAgeSeconds)
-        if (secure(ctx)) append("; Secure")
+        if (secure) append("; Secure")
     }
 }

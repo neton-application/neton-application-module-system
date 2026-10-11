@@ -67,7 +67,18 @@ object SystemRuntimeBootstrap {
         val messageTemplateLogic = ctx.get(MessageTemplateLogic::class)
         val messageChannelLogic = MessageChannelLogic(loggerFactory.get("logic.message-channel"), messageProviders)
         val redis = ctx.getOrNull(neton.redis.RedisClient::class)
-        val messageSendLogic = MessageSendLogic(loggerFactory.get("logic.message-send"), messageChannelLogic, messageTemplateLogic, redis)
+        // 会话吊销（退出、刷新令牌单次使用）与管理员会话版本 / 授权版本，见 spec application/identity-realm。
+        val sessionRevocation = security.SessionRevocation(redis)
+        ctx.bind(security.SessionRevocation::class, sessionRevocation)
+        val adminSessionLogic = ctx.get(logic.AdminSessionLogic::class)
+        val messageSendLogic = MessageSendLogic(loggerFactory.get("logic.message-send"), messageChannelLogic, messageTemplateLogic)
+        val verificationCodes = VerificationCodeService(
+            log = loggerFactory.get("logic.verification"),
+            redis = redis,
+            delivery = messageSendLogic,
+            settings = config.loadVerificationSettings(ctx),
+        )
+        ctx.bind(VerificationCodeService::class, verificationCodes)
         val socialUserLogic = SocialUserLogic(loggerFactory.get("logic.social-user"), socialProviders)
         val notificationTemplateLogic = NotificationTemplateLogic(loggerFactory.get("logic.notification-template"), messageSendLogic)
 
@@ -80,12 +91,18 @@ object SystemRuntimeBootstrap {
             loggerFactory.get("logic.permission"),
             superAdminEvaluator,
             ctx.get(neton.database.api.DbContext::class),
+            adminSessionLogic,
         )
         ctx.bind(PermissionLogic::class, permissionLogic)
-        // AuthLogic 登录时用 permissionLogic 解析权限写进 JWT（P0 granular RBAC）。
+        // 权限不写进令牌：管理员域每次请求按授权版本解析（security.AdminTokenRealm）。
         val mfa = MfaLogic(ctx.get(neton.database.api.DbContext::class), neton.core.config.getEnv("NETON_MFA_MASTER_KEY"), loggerFactory.get("security.mfa"))
         ctx.bind(MfaLogic::class, mfa)
-        ctx.bind(AuthLogic::class, AuthLogic(loggerFactory.get("logic.auth"), jwt, mfa, permissionLogic, messageSendLogic, socialUserLogic))
+        ctx.bind(AuthLogic::class, AuthLogic(
+            log = loggerFactory.get("logic.auth"), jwt = jwt, mfa = mfa,
+            verificationCodes = verificationCodes, socialUserLogic = socialUserLogic,
+            sessions = adminSessionLogic, revocation = sessionRevocation,
+            throttle = security.LoginThrottle(redis),
+        ))
         ctx.bind(DictLogic::class, DictLogic(loggerFactory.get("logic.dict"), infra.SimpleCache()))
     }
 

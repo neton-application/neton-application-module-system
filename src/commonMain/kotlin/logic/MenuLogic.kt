@@ -11,7 +11,8 @@ import neton.database.dsl.*
 
 @neton.core.annotations.Logic(logger = "logic.menu")
 class MenuLogic(
-    private val log: Logger
+    private val log: Logger,
+    private val adminSessions: AdminSessionLogic,
 ) {
 
     suspend fun listFlat(): List<MenuVO> {
@@ -62,6 +63,8 @@ class MenuLogic(
         // 全列 update：请求构造的 Menu 不带时间戳，必须保留原行 created_at/updated_at，
         // 否则写 null 触发 23502 非空约束（menu/update 500 的根因）。
         MenuTable.update(menu.copy(createdAt = existing.createdAt, updatedAt = existing.updatedAt))
+        // 菜单停用或改权限串，所有持有它的角色立即失去对应权限（评审 R05）。
+        adminSessions.bumpAuthorization()
     }
 
     suspend fun delete(id: Long) {
@@ -75,6 +78,7 @@ class MenuLogic(
         }
 
         MenuTable.destroy(id)
+        adminSessions.bumpAuthorization()
     }
 
     private fun buildTree(menus: List<Menu>, parentId: Long): List<MenuVO> {

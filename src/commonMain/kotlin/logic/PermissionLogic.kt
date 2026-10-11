@@ -25,6 +25,7 @@ class PermissionLogic(
     private val log: Logger,
     private val superAdminEvaluator: SuperAdminEvaluator,
     private val db: DbContext,
+    private val adminSessions: AdminSessionLogic? = null,
 ) {
 
     /**
@@ -173,6 +174,7 @@ class PermissionLogic(
             }
         }
 
+        adminSessions?.bumpAuthorization()
         log.info("Assigned ${menuIds.size} menus to role $roleId")
     }
 
@@ -197,6 +199,7 @@ class PermissionLogic(
             }
         }
 
+        adminSessions?.bumpAuthorization()
         log.info("Assigned ${roleIds.size} roles to user $userId")
     }
 

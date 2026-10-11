@@ -22,7 +22,8 @@ import neton.security.password.PasswordHasher
 
 @neton.core.annotations.Logic(logger = "logic.user")
 class UserLogic(
-    private val log: Logger
+    private val log: Logger,
+    private val adminSessions: AdminSessionLogic,
 ) {
 
     suspend fun page(
@@ -152,6 +153,8 @@ class UserLogic(
             ?: throw NotFoundException("User not found")
 
         UserTable.update(user.copy(passwordHash = PasswordHasher.hash(newPassword)))
+        // 管理员重置了别人的密码：那个人已登录的会话全部作废（评审 R04）。
+        adminSessions.revokeAll(id)
     }
 
     /** 本人改资料：只动展示类字段，部门、状态、角色一律不经这里。 */
@@ -179,6 +182,8 @@ class UserLogic(
             throw BadRequestException("新密码不能与当前密码相同")
         }
         UserTable.update(user.copy(passwordHash = PasswordHasher.hash(newPassword)))
+        // 本人改密：其他设备上的会话全部作废，当前会话也要重新登录 —— 改密往往正是因为怀疑被盗用。
+        adminSessions.revokeAll(id)
     }
 
     suspend fun updateStatus(id: Long, status: Int) {

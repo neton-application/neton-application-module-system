@@ -17,6 +17,7 @@ import neton.database.dsl.*
 class RoleLogic(
     private val log: Logger,
     private val db: DbContext,
+    private val adminSessions: AdminSessionLogic,
 ) {
 
     suspend fun page(
@@ -81,6 +82,8 @@ class RoleLogic(
             ?: throw NotFoundException("Role not found")
 
         RoleTable.update(role)
+        // 角色启停、改 code 都会改变持有者的权限（评审 R05）。
+        adminSessions.bumpAuthorization()
     }
 
     suspend fun delete(id: Long) {
@@ -95,6 +98,7 @@ class RoleLogic(
 
             RoleTable.destroy(id)
         }
+        adminSessions.bumpAuthorization()
     }
 
     suspend fun assignMenus(roleId: Long, menuIds: List<Long>) {
@@ -115,6 +119,7 @@ class RoleLogic(
             }
         }
 
+        adminSessions.bumpAuthorization()
         log.info("Assigned ${menuIds.size} menus to role $roleId")
     }
 

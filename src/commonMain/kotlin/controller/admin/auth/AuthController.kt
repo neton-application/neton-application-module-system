@@ -66,12 +66,13 @@ class AuthController(
     @Post("/logout")
     suspend fun logout(http: HttpContext, identity: Identity) {
         val userId = identity.id.toLong()
-        authLogic.logout(userId)
+        authLogic.logout(userId, (identity as? security.RealmIdentity)?.sessionId)
         SessionCookie.clear(ctx, http)
     }
 
     @Post("/refresh-token")
     @AllowAnonymous
+    @RateLimit(windowSeconds = 60, maxRequests = 30, scope = RateLimitScope.IP, message = "Too many refresh attempts, please try again later")
     suspend fun refreshToken(http: HttpContext, @Body request: RefreshTokenRequest): LoginResponse {
         return authLogic.refreshToken(request.refreshToken).also { issueSession(http, it) }
     }

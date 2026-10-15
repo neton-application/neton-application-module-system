@@ -11,7 +11,8 @@ import neton.logging.Logger
 /**
  * 邮件发送：SMTP（任意邮箱，含企业邮箱 / QQ / 163）或厂商 HTTP 接口（Resend / SendGrid / Mailgun / Brevo / 自定义）。
  *
- * SMTP 的 socket + TLS 在引擎适配层（KtorSmtpTransport），由应用 bind 进来；HTTP 厂商直接用 HttpClient。
+ * SMTP 走应用 bind 进来的 [neton.http.mail.SmtpTransport]（默认是 neton-http 自带的 `defaultSmtpTransport()`，
+ * 跑在 Neton 自己的 netonstream io + tls 上）；HTTP 厂商直接用 HttpClient。
  *
  * 通道 config（与 MailAccountVO 同形）：
  * - vendor：smtp | resend | sendgrid | mailgun | brevo | http
@@ -24,7 +25,7 @@ import neton.logging.Logger
 class EmailProvider(
     private val log: Logger,
     private val http: HttpClient,
-    /** SMTP 发信实现，由应用装配层 bind（neton-http-ktor 的 KtorSmtpTransport）；没绑就不支持 smtp */
+    /** SMTP 发信实现，由应用装配层 bind（通常是 neton-http 的 `defaultSmtpTransport()`）；没绑就不支持 smtp */
     private val smtp: neton.http.mail.SmtpTransport? = null,
 ) : MessageProvider {
     override val type: String = "email"

@@ -4,6 +4,8 @@ import neton.core.http.HttpException
 import neton.core.http.NetonErrorCode
 import neton.logging.Logger
 import neton.redis.RedisClient
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlin.random.Random
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
@@ -21,7 +23,10 @@ import kotlin.time.Duration.Companion.seconds
  * - 发送有冷却、按接收方的每日上限和按通道的全局每日预算，防止被拿来轰炸手机号或刷短信费。
  * - 登录后才能发的码（绑定邮箱、换绑手机）可以绑定发起人 [actor]：别的账号拿到同一个码也用不了。
  * - 码不进任何日志（[MessageSendLogic] 写发送记录前会脱敏）。没有配置发送通道时不假装发送成功：
- *   直接报服务不可用；只有显式打开 [simulate] 的开发环境才只存不发。
+ *   直接报服务不可用。
+ * - 模拟通道（[Settings.simulate]，spec auth-abuse-protection §5.2）：只存不发。额度与挑战照常，
+ *   不调用任何供应商、不查模板；码写进 `verification.simulated` 日志并镜像到模拟收件箱，
+ *   供开发取码接口读取（[latestSimulated]）。能否打开由启动时的环境闸决定（config.requireSimulationAllowed）。
  */
 class VerificationCodeService(
     private val log: Logger,
@@ -34,7 +39,7 @@ class VerificationCodeService(
     enum class Result { OK, INVALID, EXPIRED, LOCKED }
 
     data class Settings(
-        /** 开发联调：没有发送通道时只存不发（码从 Redis 读）。生产必须保持 false。 */
+        /** 模拟通道：只存不发，码可由开发取码接口读出。只有显式声明的 dev / local / test 环境能打开。 */
         val simulate: Boolean = false,
         /** 同一接收方两次发码的最短间隔。 */
         val resendCooldownSeconds: Long = 60,
@@ -58,11 +63,17 @@ class VerificationCodeService(
         r.set(key, code, ttl = CODE_TTL_SECONDS.seconds)
         r.delete(failsKey(key))
 
+        if (settings.simulate) {
+            val now = Clock.System.now().toEpochMilliseconds()
+            val record = SimulatedCode(channel.key, to, code, realm, purpose, now, now + CODE_TTL_SECONDS * 1000)
+            r.set(simulatedKey(channel, to), json.encodeToString(SimulatedCode.serializer(), record), ttl = CODE_TTL_SECONDS.seconds)
+            log.info("verification.simulated", mapOf("realm" to realm, "purpose" to purpose, "channel" to channel.key, "to" to mask(channel, to), "code" to code))
+            return
+        }
+
         val outcome = delivery.deliverCode(channel.key, to, templateCode, code)
-        when {
-            outcome == MessageSendLogic.Delivery.SENT -> Unit
-            outcome == MessageSendLogic.Delivery.UNCONFIGURED && settings.simulate ->
-                log.info("verification.simulated", mapOf("realm" to realm, "purpose" to purpose, "channel" to channel.key, "to" to mask(channel, to)))
+        when (outcome) {
+            MessageSendLogic.Delivery.SENT -> Unit
             else -> {
                 r.delete(key)
                 r.delete("vc:cooldown:${channel.key}:$to") // 没发出去不该占用户的重试机会
@@ -102,6 +113,19 @@ class VerificationCodeService(
         }
     }
 
+    /** 模拟通道是否打开（开发取码接口据此决定是否存在）。 */
+    val simulationActive: Boolean get() = settings.simulate
+
+    /**
+     * 模拟收件箱里该接收方最近一条码（开发取码接口用）。模拟未开启时恒为 null。
+     * 只是镜像：核验仍只认挑战本身，挑战被消费或作废后这里的码也用不了。
+     */
+    suspend fun latestSimulated(channel: Channel, recipient: String): SimulatedCode? {
+        if (!settings.simulate) return null
+        val raw = redis?.getValue(simulatedKey(channel, normalize(channel, recipient))) ?: return null
+        return runCatching { json.decodeFromString(SimulatedCode.serializer(), raw) }.getOrNull()
+    }
+
     /** 某个用途下是否有尚未用掉的码（一个入口接受多种用途时，按此选用哪一条）。 */
     suspend fun hasPending(realm: String, purpose: String, channel: Channel, recipient: String, actor: String? = null): Boolean =
         redis?.getValue(challengeKey(realm, purpose, channel, normalize(channel, recipient), actor)) != null
@@ -135,6 +159,7 @@ class VerificationCodeService(
     private fun challengeKey(realm: String, purpose: String, channel: Channel, to: String, actor: String?) =
         if (actor == null) "vc:$realm:$purpose:${channel.key}:$to" else "vc:$realm:$purpose:${channel.key}:@$actor:$to"
     private fun failsKey(key: String) = "$key:fails"
+    private fun simulatedKey(channel: Channel, to: String) = "vc:sim:${channel.key}:$to"
     private fun normalize(channel: Channel, recipient: String) =
         if (channel == Channel.EMAIL) recipient.trim().lowercase() else recipient.trim()
 
@@ -143,7 +168,20 @@ class VerificationCodeService(
         Channel.EMAIL -> to.substringBefore('@').take(2) + "***@" + to.substringAfter('@', "")
     }
 
+    /** 模拟收件箱的一条记录。[receiver] 是规范化后的接收方。时间为 epoch 毫秒。 */
+    @Serializable
+    data class SimulatedCode(
+        val channel: String,
+        val receiver: String,
+        val code: String,
+        val realm: String,
+        val purpose: String,
+        val issuedAt: Long,
+        val expiresAt: Long,
+    )
+
     companion object {
+        private val json = Json { ignoreUnknownKeys = true }
         const val CODE_TTL_SECONDS = 300L
         const val MAX_FAILS = 5
     }

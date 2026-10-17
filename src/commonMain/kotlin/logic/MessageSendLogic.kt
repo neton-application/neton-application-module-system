@@ -26,7 +26,7 @@ class MessageSendLogic(
 
     /**
      * 投递一条验证码。优先用模板 [templateCode]；邮件没有模板时退回到任一启用的邮箱通道发默认文案。
-     * 都没有 → [Delivery.UNCONFIGURED]，由调用方决定报错还是（开发环境）模拟。
+     * 都没有 → [Delivery.UNCONFIGURED]，调用方据此报服务不可用（开发环境的模拟通道根本不走到这里）。
      */
     suspend fun deliverCode(channelType: String, receiver: String, templateCode: String, code: String): Delivery {
         val template = runCatching { messageTemplateLogic.getByCode(templateCode) }.getOrNull()

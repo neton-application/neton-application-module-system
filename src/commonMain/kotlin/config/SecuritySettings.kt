@@ -2,6 +2,8 @@ package config
 
 import neton.core.component.NetonContext
 import neton.core.config.ConfigLoader
+import neton.core.config.ConfigOverrides
+import neton.core.config.getEnv
 import neton.security.jwt.JwtAuthenticator
 
 private const val APP_CONFIG_PATH = "config"
@@ -108,7 +110,8 @@ fun loadSuperAdminCodes(ctx: NetonContext): Set<String> {
 /**
  * 验证码发送策略（`[security.verification]`）。
  *
- * - `simulate`：没有短信 / 邮件通道时只存不发，仅供本地联调；生产必须为 false（默认）。
+ * - `simulate`：只存不发（模拟通道，spec auth-abuse-protection §5.2），仅供本地联调与 E2E；
+ *   只有显式声明运行环境为 dev / local / test 时才允许打开，否则启动失败，见 [requireSimulationAllowed]。
  * - `resend_cooldown_seconds`：同一接收方两次发码的最短间隔，默认 60。
  * - `daily_limit_per_recipient`：同一接收方每天最多发码次数，默认 10。
  * - `daily_limit_global`：每个通道全站每天最多发码条数，0（默认）= 不限；生产建议按短信预算设置。
@@ -122,13 +125,45 @@ fun loadVerificationSettings(ctx: NetonContext): logic.VerificationCodeService.S
     val defaults = logic.VerificationCodeService.Settings()
     fun long(path: String, fallback: Long): Long =
         if (ConfigLoader.hasConfig(appConfig, path)) ConfigLoader.getInt(appConfig, path).toLong() else fallback
+    val simulate = ConfigLoader.hasConfig(appConfig, "security.verification.simulate") &&
+        ConfigLoader.getBoolean(appConfig, "security.verification.simulate")
+    requireSimulationAllowed(simulate, explicitEnvironment(ctx.args))
     return logic.VerificationCodeService.Settings(
-        simulate = ConfigLoader.hasConfig(appConfig, "security.verification.simulate") &&
-            ConfigLoader.getBoolean(appConfig, "security.verification.simulate"),
+        simulate = simulate,
         resendCooldownSeconds = long("security.verification.resend_cooldown_seconds", defaults.resendCooldownSeconds),
         dailyLimitPerRecipient = long("security.verification.daily_limit_per_recipient", defaults.dailyLimitPerRecipient),
         dailyLimitGlobal = long("security.verification.daily_limit_global", defaults.dailyLimitGlobal),
     )
+}
+
+/** 允许打开验证码模拟通道的运行环境（大小写不敏感）。 */
+val SIMULATION_ENVIRONMENTS = setOf("dev", "local", "test")
+
+/**
+ * 显式声明的运行环境：CLI `--env=`，或 `NETON_ENV` / `ENV` / `NODE_ENV`（与 [ConfigLoader.resolveEnvironment] 同源同优先级）。
+ * 都没给时返回 null —— 框架这时默认按 `dev` 运行，但那也是生产机忘配 `NETON_ENV` 时的样子，不能当作「开发环境」。
+ */
+fun explicitEnvironment(args: Array<String>): String? {
+    val fromCli = (ConfigOverrides.cliToOverrides(args)["env"] as? String)?.trim()
+    if (!fromCli.isNullOrEmpty()) return fromCli
+    return listOf("NETON_ENV", "ENV", "NODE_ENV").firstNotNullOfOrNull { getEnv(it)?.trim()?.takeIf { v -> v.isNotEmpty() } }
+}
+
+/**
+ * 模拟通道的环境闸（spec auth-abuse-protection §5.2）：`simulate = true` 只在显式声明的 dev / local / test 环境放行，
+ * 其他一律 fail-fast —— 生产误开时宁可起不来，也不能带着「验证码不投递、码进日志、可被后台读出」的配置上线。
+ */
+fun requireSimulationAllowed(simulate: Boolean, explicitEnvironment: String?) {
+    if (!simulate) return
+    val env = explicitEnvironment?.trim()?.lowercase()
+    check(env != null) {
+        "security.verification.simulate = true requires an explicitly declared development environment. " +
+            "Set NETON_ENV=dev (or --env=dev / local / test); never enable simulation in production."
+    }
+    check(env in SIMULATION_ENVIRONMENTS) {
+        "security.verification.simulate = true is not allowed in environment '$env'. " +
+            "Verification simulation is only permitted in ${SIMULATION_ENVIRONMENTS.joinToString("/")}; remove it from this deployment."
+    }
 }
 
 /**

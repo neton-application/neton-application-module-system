@@ -93,6 +93,9 @@ class VerificationSimulationTest {
             // 冷却照常：模拟不绕过额度。
             val cooldown = assertFailsWith<HttpException> { sim.issue("account", "login", sms, phone, "sms_verification_login") }
             assertEquals(NetonErrorCode.RATE_LIMIT_EXCEEDED, cooldown.code)
+            // Retry-After 是冷却键真实剩余秒数（刚发过，接近整段 60s）
+            val retryAfter = assertNotNull(cooldown.headers["Retry-After"]).toLong()
+            assertTrue(retryAfter in 55..60, "Retry-After=$retryAfter")
 
             // 码只能用于发它的用途；统一挑战原子消费，一次性。
             assertEquals(VerificationCodeService.Result.EXPIRED, sim.verify("account", "reset-password", sms, phone, record.code))

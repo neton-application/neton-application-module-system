@@ -132,10 +132,18 @@ class VerificationCodeService(
 
     /** 冷却与每日上限。先占冷却位再计数，两个并发请求只有一个能通过冷却。 */
     private suspend fun reserveSendBudget(r: RedisClient, channel: Channel, to: String) {
+        val cooldownKey = "vc:cooldown:${channel.key}:$to"
         if (settings.resendCooldownSeconds > 0 &&
-            !r.setIfAbsent("vc:cooldown:${channel.key}:$to", "1", settings.resendCooldownSeconds * 1000)
+            !r.setIfAbsent(cooldownKey, "1", settings.resendCooldownSeconds * 1000)
         ) {
-            throw HttpException(NetonErrorCode.RATE_LIMIT_EXCEEDED, SystemErrorCodes.VERIFICATION_TOO_FREQUENT)
+            // Retry-After = 冷却键真实剩余时间（向上取整秒）；键恰好过期/读不到时按整段冷却给
+            val remainingMs = r.evalToLong("return redis.call('PTTL', KEYS[1])", listOf(cooldownKey), emptyList())
+            val retryAfter = remainingMs?.takeIf { it > 0 }?.let { (it + 999) / 1000 } ?: settings.resendCooldownSeconds
+            throw HttpException(
+                NetonErrorCode.RATE_LIMIT_EXCEEDED,
+                SystemErrorCodes.VERIFICATION_TOO_FREQUENT,
+                headers = mapOf("Retry-After" to retryAfter.coerceIn(1, settings.resendCooldownSeconds).toString()),
+            )
         }
         val day = Clock.System.now().toEpochMilliseconds() / 86_400_000
         if (settings.dailyLimitPerRecipient > 0 &&

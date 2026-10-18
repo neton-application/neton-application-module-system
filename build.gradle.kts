@@ -99,6 +99,12 @@ tasks.matching { it.name.matches(Regex("kspKotlin(LinuxX64|LinuxArm64|MingwX64)"
     dependsOn("kspKotlinMacosArm64")
 }
 
+// 错误 message 守卫：共享夹具只挂在 macosArm64Test 上（见 neton-application-contract README）。
+kotlin.sourceSets.named("macosArm64Test") { kotlin.srcDir("../neton-application-contract/src/testFixtures/kotlin") }
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest>().configureEach {
+    environment("NETON_MODULE_DIR", projectDir.absolutePath)
+}
+
 // ============================================================
 // Embed SQL migration resources into binary (no runtime file IO).
 // ============================================================

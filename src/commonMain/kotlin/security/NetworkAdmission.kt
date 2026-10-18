@@ -1,5 +1,6 @@
 package security
 
+import logic.SystemErrorCodes
 import neton.core.component.NetonContext
 import neton.core.config.ConfigLoader
 import neton.core.http.HttpContext
@@ -18,7 +19,7 @@ class NetworkAdmission(
         val ip = context.request.clientAddress
         if (permits(routeGroup, ip)) return true
         context.response.status = HttpStatus.FORBIDDEN
-        context.response.json(mapOf("code" to neton.core.http.NetonErrorCode.PERMISSION_DENIED, "message" to "Access denied"))
+        context.response.json(mapOf("code" to neton.core.http.NetonErrorCode.PERMISSION_DENIED, "message" to SystemErrorCodes.IP_NOT_ALLOWED))
         return false
     }
 

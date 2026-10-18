@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import dto.PageResponse
 import controller.admin.role.dto.RoleVO
 import model.Role
@@ -61,7 +63,7 @@ class RoleLogic(
 
     suspend fun getById(id: Long): RoleVO {
         val role = RoleTable.get(id)
-            ?: throw NotFoundException("Role not found")
+            ?: throw NotFoundException(SystemErrorCodes.ROLE_NOT_FOUND)
         return role.toVO()
     }
 
@@ -71,7 +73,7 @@ class RoleLogic(
         }
 
         if (existing != null) {
-            throw BadRequestException("Role code already exists")
+            throw HttpException(NetonErrorCode.RESOURCE_ALREADY_EXISTS, SystemErrorCodes.ROLE_CODE_EXISTS, SystemErrorCodes.field("code", SystemErrorCodes.ROLE_CODE_EXISTS))
         }
 
         return RoleTable.insert(role).id
@@ -79,7 +81,7 @@ class RoleLogic(
 
     suspend fun update(role: Role) {
         RoleTable.get(role.id)
-            ?: throw NotFoundException("Role not found")
+            ?: throw NotFoundException(SystemErrorCodes.ROLE_NOT_FOUND)
 
         RoleTable.update(role)
         // 角色启停、改 code 都会改变持有者的权限（评审 R05）。
@@ -88,7 +90,7 @@ class RoleLogic(
 
     suspend fun delete(id: Long) {
         RoleTable.get(id)
-            ?: throw NotFoundException("Role not found")
+            ?: throw NotFoundException(SystemErrorCodes.ROLE_NOT_FOUND)
 
         // Remove associated role-menu mappings + delete role in a single transaction
         db.transaction {
@@ -103,7 +105,7 @@ class RoleLogic(
 
     suspend fun assignMenus(roleId: Long, menuIds: List<Long>) {
         RoleTable.get(roleId)
-            ?: throw NotFoundException("Role not found")
+            ?: throw NotFoundException(SystemErrorCodes.ROLE_NOT_FOUND)
 
         // Remove existing mappings + insert new mappings in a single transaction
         db.transaction {

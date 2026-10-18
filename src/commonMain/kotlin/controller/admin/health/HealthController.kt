@@ -1,5 +1,7 @@
 package controller.admin.health
 
+import neton.core.http.ValidationError
+import logic.SystemErrorCodes
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import neton.core.annotations.AllowAnonymous
@@ -26,7 +28,8 @@ data class HealthReport(
  * 此前根路径的 health 永远返回 ok，不能说明数据库、Redis 是否可用，负载均衡和后台页面都据此误判。
  * - `live`：进程在跑就返回，不碰任何依赖（给重启策略用，依赖抖动不该触发重启）。
  * - `ready`：实际探测数据库与 Redis，每项最多等 [PROBE_TIMEOUT_MS]。全部可用返回 200 + `ready`；
- *   任一不可用返回 503，消息为 `degraded database=ok,redis=unavailable`（给流量调度和后台状态灯用）。
+ *   任一不可用返回 503，消息为 `SERVICE_DEGRADED`，`errors` 里逐项列出不可用的依赖
+ *   （`{ field: "redis", code: "DEPENDENCY_UNAVAILABLE" }`，给流量调度和后台状态灯用）。
  *
  * 匿名可访问：探针本来就由未登录的基础设施调用。
  */
@@ -46,8 +49,11 @@ class HealthController(private val ctx: NetonContext) {
         )
         http.response.header("Cache-Control", "no-store")
         if (checks.values.any { it == UNAVAILABLE }) {
-            // 成功响应一律是 200；要让负载均衡看到 503，只能走错误路径。状态写在消息里，格式稳定。
-            throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, "degraded " + checks.entries.joinToString(",") { "${it.key}=${it.value}" })
+            // 成功响应一律是 200；要让负载均衡看到 503，只能走错误路径。不可用的依赖逐项放在字段级错误里。
+            throw HttpException(
+                NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.SERVICE_DEGRADED,
+                checks.filterValues { it == UNAVAILABLE }.keys.map { ValidationError(it, SystemErrorCodes.DEPENDENCY_UNAVAILABLE, SystemErrorCodes.DEPENDENCY_UNAVAILABLE) },
+            )
         }
         return HealthReport(status = "ready", checks = checks)
     }

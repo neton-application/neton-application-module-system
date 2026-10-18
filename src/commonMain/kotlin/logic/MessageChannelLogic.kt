@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import controller.admin.message.dto.MessageChannelVO
 import dto.PageResponse
 import logic.provider.MessageProvider
@@ -48,13 +50,13 @@ class MessageChannelLogic(
 
     suspend fun getById(id: Long): MessageChannelVO {
         val channel = MessageChannelTable.get(id)
-            ?: throw NotFoundException("Message channel not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_CHANNEL_NOT_FOUND)
         return channel.toVO()
     }
 
     suspend fun getRawById(id: Long): MessageChannel {
         return MessageChannelTable.get(id)
-            ?: throw NotFoundException("Message channel not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_CHANNEL_NOT_FOUND)
     }
 
     suspend fun pageRaw(
@@ -95,20 +97,20 @@ class MessageChannelLogic(
             MessageChannel::code eq channel.code
         }
         if (existing != null) {
-            throw BadRequestException("Channel code already exists")
+            throw HttpException(NetonErrorCode.RESOURCE_ALREADY_EXISTS, SystemErrorCodes.MESSAGE_CHANNEL_CODE_EXISTS, SystemErrorCodes.field("code", SystemErrorCodes.MESSAGE_CHANNEL_CODE_EXISTS))
         }
         return MessageChannelTable.insert(channel).id
     }
 
     suspend fun update(channel: MessageChannel) {
         MessageChannelTable.get(channel.id)
-            ?: throw NotFoundException("Message channel not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_CHANNEL_NOT_FOUND)
         MessageChannelTable.update(channel)
     }
 
     suspend fun delete(id: Long) {
         MessageChannelTable.get(id)
-            ?: throw NotFoundException("Message channel not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_CHANNEL_NOT_FOUND)
         MessageChannelTable.destroy(id)
     }
 
@@ -136,10 +138,10 @@ class MessageChannelLogic(
      */
     suspend fun sendTest(channelId: Long, receiver: String, content: String): Boolean {
         val channel = MessageChannelTable.get(channelId)
-            ?: throw NotFoundException("Message channel not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_CHANNEL_NOT_FOUND)
 
         val provider = getProvider(channel.type)
-            ?: throw NotFoundException("No provider found for type: ${channel.type}")
+            ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.MESSAGE_PROVIDER_UNAVAILABLE)
 
         return provider.send(receiver, content, channel.config ?: "{}")
     }

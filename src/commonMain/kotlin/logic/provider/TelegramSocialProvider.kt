@@ -1,5 +1,6 @@
 package logic.provider
 
+import logic.SystemErrorCodes
 import neton.logging.Logger
 
 /**
@@ -18,15 +19,11 @@ class TelegramSocialProvider(
 
     override suspend fun getAuthRedirectUrl(config: String, redirectUri: String): String {
         log.warn("social.telegram.not_implemented method=getAuthRedirectUrl")
-        throw ProviderNotImplementedException(
-            "Telegram social login is not implemented. Configure the Telegram login widget or inject a test double."
-        )
+        throw ProviderNotImplementedException(SystemErrorCodes.SOCIAL_PROVIDER_NOT_IMPLEMENTED)
     }
 
     override suspend fun getUserInfo(config: String, code: String, redirectUri: String): SocialUserInfo {
         log.warn("social.telegram.not_implemented method=getUserInfo")
-        throw ProviderNotImplementedException(
-            "Telegram social login is not implemented. Configure the Telegram login widget or inject a test double."
-        )
+        throw ProviderNotImplementedException(SystemErrorCodes.SOCIAL_PROVIDER_NOT_IMPLEMENTED)
     }
 }

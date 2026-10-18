@@ -1,5 +1,6 @@
 package logic.provider
 
+import logic.SystemErrorCodes
 import neton.logging.Logger
 
 /**
@@ -19,15 +20,11 @@ class GoogleSocialProvider(
 
     override suspend fun getAuthRedirectUrl(config: String, redirectUri: String): String {
         log.warn("social.google.not_implemented method=getAuthRedirectUrl")
-        throw ProviderNotImplementedException(
-            "Google social login is not implemented. Configure Google OAuth2 or inject a test double."
-        )
+        throw ProviderNotImplementedException(SystemErrorCodes.SOCIAL_PROVIDER_NOT_IMPLEMENTED)
     }
 
     override suspend fun getUserInfo(config: String, code: String, redirectUri: String): SocialUserInfo {
         log.warn("social.google.not_implemented method=getUserInfo")
-        throw ProviderNotImplementedException(
-            "Google social login is not implemented. Configure Google OAuth2 or inject a test double."
-        )
+        throw ProviderNotImplementedException(SystemErrorCodes.SOCIAL_PROVIDER_NOT_IMPLEMENTED)
     }
 }

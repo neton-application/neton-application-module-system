@@ -1,5 +1,6 @@
 package controller.admin.message
 
+import logic.SystemErrorCodes
 import controller.admin.message.dto.MessageLogVO
 import dto.PageResponse
 import model.MessageLog
@@ -48,7 +49,7 @@ class MessageLogController {
     @Permission("system:message-log:query")
     suspend fun get(@PathVariable id: Long): MessageLogVO {
         val log = MessageLogTable.get(id)
-            ?: throw NotFoundException("Message log not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_LOG_NOT_FOUND)
         return log.toVO()
     }
 

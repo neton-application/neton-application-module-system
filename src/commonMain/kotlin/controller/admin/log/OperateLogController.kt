@@ -1,5 +1,6 @@
 package controller.admin.log
 
+import logic.SystemErrorCodes
 import dto.PageResponse
 import logic.LogLogic
 import model.OperateLog
@@ -27,6 +28,6 @@ class OperateLogController(
     @Permission("system:operate-log:query")
     suspend fun get(@PathVariable id: Long): OperateLog {
         return logLogic.getOperateLogById(id)
-            ?: throw NotFoundException("Operate log not found")
+            ?: throw NotFoundException(SystemErrorCodes.OPERATE_LOG_NOT_FOUND)
     }
 }

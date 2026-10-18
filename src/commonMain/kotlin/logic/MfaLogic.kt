@@ -2,6 +2,9 @@ package logic
 
 import kotlinx.serialization.Serializable
 import neton.core.http.BadRequestException
+import neton.core.http.HttpException
+import neton.core.http.NetonErrorCode
+import neton.core.http.NotFoundException
 import neton.database.api.DbContext
 import neton.database.api.Row
 import neton.logging.Logger
@@ -24,11 +27,11 @@ class MfaLogic(
     private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     private val box = masterKey?.takeIf { it.isNotBlank() }?.let { SecretBox.fromBase64(it) }
-    private fun requireBox() = box ?: throw BadRequestException("MFA is not configured on this server")
+    private fun requireBox() = box ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.MFA_NOT_CONFIGURED)
     private fun now() = clock()
     private fun hash(token: String): String {
         requireBox()
-        if (token.length != 64 || token.any { it !in "0123456789abcdef" }) throw BadRequestException("Invalid or expired MFA challenge")
+        if (token.length != 64 || token.any { it !in "0123456789abcdef" }) throw BadRequestException(SystemErrorCodes.MFA_CHALLENGE_INVALID)
         return HmacSha256.signHex(masterKey!!.encodeToByteArray(), token.encodeToByteArray())
     }
     private suspend fun state(id: Long, lock: Boolean = false): Row {
@@ -36,13 +39,13 @@ class MfaLogic(
         return db.fetchAll("SELECT * FROM system_mfa WHERE user_id = :id" + if (lock) " FOR UPDATE" else "", mapOf("id" to id)).single()
     }
     suspend fun status(id: Long): MfaStatus {
-        findUser(id) ?: throw BadRequestException("User not found")
+        findUser(id) ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
         val row = state(id)
         return MfaStatus(row.int("required") == 1, row.stringOrNull("secret") != null)
     }
     suspend fun setRequired(id: Long, required: Boolean, actor: String) {
         if (required) requireBox()
-        findUser(id) ?: throw BadRequestException("User not found")
+        findUser(id) ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
         db.transaction {
             state(id, true)
             db.execute("UPDATE system_mfa SET required = :required, revision = revision + 1 WHERE user_id = :id AND required <> :required", mapOf("id" to id, "required" to if (required) 1 else 0))
@@ -51,8 +54,8 @@ class MfaLogic(
         log.info("mfa.policy.updated actor=$actor user=$id required=$required")
     }
     suspend fun reset(id: Long, actor: String) {
-        if (actor == id.toString()) throw BadRequestException("Ask another administrator to reset MFA")
-        findUser(id) ?: throw BadRequestException("User not found")
+        if (actor == id.toString()) throw HttpException(NetonErrorCode.PERMISSION_DENIED, SystemErrorCodes.MFA_SELF_RESET_FORBIDDEN)
+        findUser(id) ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
         db.transaction {
             state(id, true)
             db.execute("UPDATE system_mfa SET secret = NULL, last_step = -1, revision = revision + 1 WHERE user_id = :id", mapOf("id" to id))
@@ -75,11 +78,11 @@ class MfaLogic(
     }
     suspend fun enrollment(token: String): MfaEnrollment {
         val c = db.fetchAll("SELECT * FROM system_mfa_challenges WHERE token_hash = :hash", mapOf("hash" to hash(token))).singleOrNull()
-            ?: throw BadRequestException("Invalid or expired MFA challenge")
-        if (c.int("enrollment") != 1 || c.long("expires_at") <= now() || c.int("attempts") >= 5) throw BadRequestException("Invalid or expired MFA challenge")
-        val user = findUser(c.long("user_id")) ?: throw BadRequestException("Invalid or expired MFA challenge")
+            ?: throw BadRequestException(SystemErrorCodes.MFA_CHALLENGE_INVALID)
+        if (c.int("enrollment") != 1 || c.long("expires_at") <= now() || c.int("attempts") >= 5) throw BadRequestException(SystemErrorCodes.MFA_CHALLENGE_INVALID)
+        val user = findUser(c.long("user_id")) ?: throw BadRequestException(SystemErrorCodes.MFA_CHALLENGE_INVALID)
         val s = state(user.id)
-        if (user.status != 1 || user.passwordHash != c.string("password_hash") || s.long("revision") != c.long("revision")) throw BadRequestException("Invalid or expired MFA challenge")
+        if (user.status != 1 || user.passwordHash != c.string("password_hash") || s.long("revision") != c.long("revision")) throw BadRequestException(SystemErrorCodes.MFA_CHALLENGE_INVALID)
         val secret = requireBox().open(c.string("secret"))
         // Numeric account label prevents URI injection; issuer is deliberately stable across business renames.
         return MfaEnrollment(secret, "otpauth://totp/Neton:admin-${user.id}?secret=$secret&issuer=Neton&algorithm=SHA1&digits=6&period=30")
@@ -88,7 +91,7 @@ class MfaLogic(
         val tokenHash = hash(token)
         // Read owner first; every writer locks state BEFORE challenge, preventing lock inversion.
         val owner = db.fetchAll("SELECT user_id FROM system_mfa_challenges WHERE token_hash = :hash", mapOf("hash" to tokenHash)).singleOrNull()?.long("user_id")
-            ?: throw BadRequestException("Invalid or expired MFA challenge")
+            ?: throw BadRequestException(SystemErrorCodes.MFA_CHALLENGE_INVALID)
         val result = db.transaction {
             val s = state(owner, true)
             val c = db.fetchAll("SELECT * FROM system_mfa_challenges WHERE user_id = :id AND token_hash = :hash FOR UPDATE", mapOf("id" to owner, "hash" to tokenHash)).singleOrNull() ?: return@transaction null
@@ -107,7 +110,7 @@ class MfaLogic(
             db.execute("DELETE FROM system_mfa_challenges WHERE user_id = :id", mapOf("id" to owner))
             MfaCompletion(owner, s.long("revision"))
         }
-        return result ?: throw BadRequestException("Invalid code or expired MFA challenge")
+        return result ?: throw BadRequestException(SystemErrorCodes.MFA_CODE_INVALID, SystemErrorCodes.field("code", SystemErrorCodes.MFA_CODE_INVALID))
     }
     suspend fun revision(id: Long): Long = state(id).long("revision")
     suspend fun accepts(id: Long, revision: Long?, mfa: Boolean): Boolean {

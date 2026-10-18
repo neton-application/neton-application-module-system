@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import controller.admin.dept.dto.CreateDeptRequest
 import controller.admin.dept.dto.DeptVO
 import controller.admin.dept.dto.UpdateDeptRequest
@@ -32,7 +34,7 @@ class DeptLogic(
 
     suspend fun getById(id: Long): DeptVO {
         val dept = DeptTable.get(id)
-            ?: throw NotFoundException("Department not found")
+            ?: throw NotFoundException(SystemErrorCodes.DEPT_NOT_FOUND)
         return dept.toVO(children = null)
     }
 
@@ -50,11 +52,11 @@ class DeptLogic(
 
     suspend fun update(request: UpdateDeptRequest) {
         if (request.parentId == request.id) {
-            throw BadRequestException("Parent department cannot be itself")
+            throw BadRequestException(SystemErrorCodes.DEPT_PARENT_SELF, SystemErrorCodes.field("parentId", SystemErrorCodes.DEPT_PARENT_SELF))
         }
 
         DeptTable.get(request.id)
-            ?: throw NotFoundException("Department not found")
+            ?: throw NotFoundException(SystemErrorCodes.DEPT_NOT_FOUND)
 
         DeptTable.update(
             Dept(
@@ -74,7 +76,7 @@ class DeptLogic(
         }.list()
 
         if (children.isNotEmpty()) {
-            throw BadRequestException("Cannot delete department with children")
+            throw HttpException(NetonErrorCode.OPERATION_CONFLICT, SystemErrorCodes.DEPT_HAS_CHILDREN)
         }
 
         DeptTable.destroy(id)

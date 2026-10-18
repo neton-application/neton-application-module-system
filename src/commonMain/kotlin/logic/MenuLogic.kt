@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import controller.admin.menu.dto.MenuVO
 import model.Menu
 import table.MenuTable
@@ -44,7 +46,7 @@ class MenuLogic(
 
     suspend fun getById(id: Long): MenuVO {
         val menu = MenuTable.get(id)
-            ?: throw NotFoundException("Menu not found")
+            ?: throw NotFoundException(SystemErrorCodes.MENU_NOT_FOUND)
         return menu.toVO(children = null)
     }
 
@@ -54,10 +56,10 @@ class MenuLogic(
 
     suspend fun update(menu: Menu) {
         val existing = MenuTable.get(menu.id)
-            ?: throw NotFoundException("Menu not found")
+            ?: throw NotFoundException(SystemErrorCodes.MENU_NOT_FOUND)
 
         if (menu.parentId == menu.id) {
-            throw BadRequestException("Parent menu cannot be itself")
+            throw BadRequestException(SystemErrorCodes.MENU_PARENT_SELF, SystemErrorCodes.field("parentId", SystemErrorCodes.MENU_PARENT_SELF))
         }
 
         // 全列 update：请求构造的 Menu 不带时间戳，必须保留原行 created_at/updated_at，
@@ -74,7 +76,7 @@ class MenuLogic(
         }.list()
 
         if (children.isNotEmpty()) {
-            throw BadRequestException("Cannot delete menu with children, please delete children first")
+            throw HttpException(NetonErrorCode.OPERATION_CONFLICT, SystemErrorCodes.MENU_HAS_CHILDREN)
         }
 
         MenuTable.destroy(id)

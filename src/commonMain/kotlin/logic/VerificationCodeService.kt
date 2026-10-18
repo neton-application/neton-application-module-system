@@ -54,7 +54,7 @@ class VerificationCodeService(
      * 发送失败或通道缺失时抛出，挑战不会留下 —— 用户看到的是真实的失败，而不是一条永远收不到的码。
      */
     suspend fun issue(realm: String, purpose: String, channel: Channel, recipient: String, templateCode: String, actor: String? = null) {
-        val r = redis ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, "VERIFICATION_UNAVAILABLE")
+        val r = redis ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.VERIFICATION_UNAVAILABLE)
         val to = normalize(channel, recipient)
         reserveSendBudget(r, channel, to)
 
@@ -78,10 +78,10 @@ class VerificationCodeService(
                 r.delete(key)
                 r.delete("vc:cooldown:${channel.key}:$to") // 没发出去不该占用户的重试机会
                 log.warn("verification.send_failed", mapOf("realm" to realm, "purpose" to purpose, "channel" to channel.key, "to" to mask(channel, to), "outcome" to outcome.name))
-                throw HttpException(
-                    NetonErrorCode.SERVICE_UNAVAILABLE,
-                    if (outcome == MessageSendLogic.Delivery.UNCONFIGURED) "VERIFICATION_CHANNEL_UNAVAILABLE" else "VERIFICATION_SEND_FAILED",
-                )
+                if (outcome == MessageSendLogic.Delivery.UNCONFIGURED) {
+                    throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.VERIFICATION_CHANNEL_UNAVAILABLE)
+                }
+                throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.VERIFICATION_SEND_FAILED)
             }
         }
     }
@@ -135,19 +135,19 @@ class VerificationCodeService(
         if (settings.resendCooldownSeconds > 0 &&
             !r.setIfAbsent("vc:cooldown:${channel.key}:$to", "1", settings.resendCooldownSeconds * 1000)
         ) {
-            throw HttpException(NetonErrorCode.RATE_LIMIT_EXCEEDED, "VERIFICATION_TOO_FREQUENT")
+            throw HttpException(NetonErrorCode.RATE_LIMIT_EXCEEDED, SystemErrorCodes.VERIFICATION_TOO_FREQUENT)
         }
         val day = Clock.System.now().toEpochMilliseconds() / 86_400_000
         if (settings.dailyLimitPerRecipient > 0 &&
             countToday(r, "vc:daily:${channel.key}:$to:$day") > settings.dailyLimitPerRecipient
         ) {
-            throw HttpException(NetonErrorCode.DAILY_QUOTA_EXCEEDED, "VERIFICATION_DAILY_LIMIT")
+            throw HttpException(NetonErrorCode.DAILY_QUOTA_EXCEEDED, SystemErrorCodes.VERIFICATION_DAILY_LIMIT)
         }
         if (settings.dailyLimitGlobal > 0 &&
             countToday(r, "vc:daily:${channel.key}:*:$day") > settings.dailyLimitGlobal
         ) {
             log.warn("verification.global_budget_exhausted", mapOf("channel" to channel.key, "limit" to settings.dailyLimitGlobal))
-            throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, "VERIFICATION_DAILY_BUDGET_EXHAUSTED")
+            throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.VERIFICATION_DAILY_BUDGET_EXHAUSTED)
         }
     }
 

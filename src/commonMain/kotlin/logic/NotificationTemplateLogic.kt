@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import controller.admin.message.dto.NotificationTemplateVO
 import dto.PageResponse
 import model.NotificationTemplate
@@ -45,7 +47,7 @@ class NotificationTemplateLogic(
 
     suspend fun getById(id: Long): NotificationTemplateVO {
         val template = NotificationTemplateTable.get(id)
-            ?: throw NotFoundException("Notification template not found")
+            ?: throw NotFoundException(SystemErrorCodes.NOTIFY_TEMPLATE_NOT_FOUND)
         return template.toVO()
     }
 
@@ -54,20 +56,20 @@ class NotificationTemplateLogic(
             NotificationTemplate::code eq template.code
         }
         if (existing != null) {
-            throw BadRequestException("Notification template code already exists")
+            throw HttpException(NetonErrorCode.RESOURCE_ALREADY_EXISTS, SystemErrorCodes.NOTIFY_TEMPLATE_CODE_EXISTS, SystemErrorCodes.field("code", SystemErrorCodes.NOTIFY_TEMPLATE_CODE_EXISTS))
         }
         return NotificationTemplateTable.insert(template).id
     }
 
     suspend fun update(template: NotificationTemplate) {
         NotificationTemplateTable.get(template.id)
-            ?: throw NotFoundException("Notification template not found")
+            ?: throw NotFoundException(SystemErrorCodes.NOTIFY_TEMPLATE_NOT_FOUND)
         NotificationTemplateTable.update(template)
     }
 
     suspend fun delete(id: Long) {
         NotificationTemplateTable.get(id)
-            ?: throw NotFoundException("Notification template not found")
+            ?: throw NotFoundException(SystemErrorCodes.NOTIFY_TEMPLATE_NOT_FOUND)
         NotificationTemplateTable.destroy(id)
     }
 
@@ -84,7 +86,7 @@ class NotificationTemplateLogic(
     ): Boolean {
         val notification = NotificationTemplateTable.oneWhere {
             NotificationTemplate::code eq notificationCode
-        } ?: throw NotFoundException("Notification template not found: $notificationCode")
+        } ?: throw NotFoundException(SystemErrorCodes.NOTIFY_TEMPLATE_NOT_FOUND)
 
         if (notification.status == 0) {
             log.warn("Notification template $notificationCode is disabled")
@@ -93,13 +95,13 @@ class NotificationTemplateLogic(
 
         val messageTemplate = notification.messageTemplateId
         if (messageTemplate == 0L) {
-            throw BadRequestException("No message template linked for notification: $notificationCode")
+            throw HttpException(NetonErrorCode.OPERATION_CONFLICT, SystemErrorCodes.NOTIFY_TEMPLATE_UNLINKED)
         }
 
         val template = logic.MessageTemplateLogic::class.let {
             // Resolve the linked message template code
             val tmpl = table.MessageTemplateTable.get(messageTemplate)
-                ?: throw NotFoundException("Linked message template not found: $messageTemplate")
+                ?: throw NotFoundException(SystemErrorCodes.MESSAGE_TEMPLATE_NOT_FOUND)
             tmpl
         }
 

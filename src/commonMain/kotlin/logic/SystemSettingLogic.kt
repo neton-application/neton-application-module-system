@@ -43,9 +43,9 @@ class SystemSettingLogic(
     /** 写配置。值必须能被定义解析，否则拒绝 —— 让错误停在写入时，而不是等读取时静默退默认值。 */
     suspend fun <T : Any> set(definition: SettingDefinition<T>, raw: String): T {
         val parsed = definition.parse(raw)
-            ?: throw neton.core.http.HttpException(
-                neton.core.http.NetonErrorCode.INVALID_PARAMS,
-                "「${definition.name}」的值不合法：${definition.description}",
+            ?: throw neton.core.http.BadRequestException(
+                SystemErrorCodes.SETTING_VALUE_INVALID,
+                SystemErrorCodes.field("value", SystemErrorCodes.SETTING_VALUE_INVALID),
             )
         val normalized = definition.render(parsed)
         val existing = SystemSettingTable.oneWhere { SystemSetting::settingKey eq definition.key }
@@ -70,9 +70,11 @@ class SystemSettingLogic(
     /** 按 key 写。给后台用——它拿到的是字符串 key，需要先查回定义再走 [set] 的校验。 */
     suspend fun setByKey(key: String, raw: String) {
         val definition = registry.find(key)
+            // 配置必须先在代码里声明，库里出现无定义的行等于没人知道它做什么。
             ?: throw neton.core.http.HttpException(
                 neton.core.http.NetonErrorCode.RESOURCE_NOT_FOUND,
-                "未定义的配置项：$key。配置必须先在代码里声明，库里出现无定义的行等于没人知道它做什么",
+                SystemErrorCodes.SETTING_NOT_DEFINED,
+                SystemErrorCodes.field("key", SystemErrorCodes.SETTING_NOT_DEFINED),
             )
         @Suppress("UNCHECKED_CAST")
         set(definition as SettingDefinition<Any>, raw)

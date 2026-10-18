@@ -54,7 +54,7 @@ class PermissionLogic(
 
     suspend fun getPermissionInfo(userId: Long): PermissionInfoVO {
         // Get user info
-        val user = UserTable.get(userId) ?: throw NotFoundException("User not found")
+        val user = UserTable.get(userId) ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
         val userInfoVO = UserInfoVO(
             userId = user.id.toString(),
             username = user.username,
@@ -160,7 +160,7 @@ class PermissionLogic(
 
     suspend fun assignRoleMenu(roleId: Long, menuIds: List<Long>) {
         RoleTable.get(roleId)
-            ?: throw NotFoundException("Role not found")
+            ?: throw NotFoundException(SystemErrorCodes.ROLE_NOT_FOUND)
 
         // Remove existing mappings + insert new mappings in a single transaction
         db.transaction {

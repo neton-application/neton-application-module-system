@@ -1,5 +1,6 @@
 package controller.admin.auth
 
+import logic.SystemErrorCodes
 import controller.admin.auth.dto.LoginRequest
 import controller.admin.auth.dto.LoginResponse
 import controller.admin.auth.dto.PermissionInfoVO
@@ -79,7 +80,7 @@ class AuthController(
 
     @Post("/mfa/enrollment")
     @AllowAnonymous
-    @RateLimit(windowSeconds = 60, maxRequests = 10, scope = RateLimitScope.IP)
+    @RateLimit(windowSeconds = 60, maxRequests = 10, scope = RateLimitScope.IP, message = SystemErrorCodes.MFA_RATE_LIMITED)
     suspend fun enrollment(http: HttpContext, @Body request: MfaRequest): logic.MfaEnrollment {
         http.response.header("Cache-Control", "no-store")
         return ctx.get(logic.MfaLogic::class).enrollment(request.challengeToken)
@@ -87,13 +88,13 @@ class AuthController(
 
     @Post("/mfa/verify")
     @AllowAnonymous
-    @RateLimit(windowSeconds = 60, maxRequests = 10, scope = RateLimitScope.IP)
+    @RateLimit(windowSeconds = 60, maxRequests = 10, scope = RateLimitScope.IP, message = SystemErrorCodes.MFA_RATE_LIMITED)
     suspend fun verifyMfa(http: HttpContext, @Body request: MfaRequest): LoginResponse =
         audited(http, null) { authLogic.verifyMfa(request.challengeToken, request.code) }.also { issueSession(http, it) }
 
     @Post("/login")
     @AllowAnonymous
-    @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Login attempts exceeded, please try again later")
+    @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = SystemErrorCodes.LOGIN_RATE_LIMITED)
     suspend fun login(http: HttpContext, @Body request: LoginRequest): LoginResponse {
         return audited(http, request.username) {
             authLogic.login(request, http.request.clientAddress)
@@ -116,7 +117,7 @@ class AuthController(
 
     @Post("/refresh-token")
     @AllowAnonymous
-    @RateLimit(windowSeconds = 60, maxRequests = 30, scope = RateLimitScope.IP, message = "Too many refresh attempts, please try again later")
+    @RateLimit(windowSeconds = 60, maxRequests = 30, scope = RateLimitScope.IP, message = SystemErrorCodes.REFRESH_RATE_LIMITED)
     suspend fun refreshToken(http: HttpContext, @Body request: RefreshTokenRequest): LoginResponse {
         return authLogic.refreshToken(request.refreshToken).also { issueSession(http, it) }
     }
@@ -129,21 +130,21 @@ class AuthController(
 
     @Post("/sms-login")
     @AllowAnonymous
-    @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "SMS login attempts exceeded, please try again later")
+    @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = SystemErrorCodes.SMS_LOGIN_RATE_LIMITED)
     suspend fun smsLogin(http: HttpContext, @Body request: SmsLoginRequest): LoginResponse {
         return audited(http, null) { authLogic.smsLogin(request.mobile, request.smsCode) }.also { issueSession(http, it) }
     }
 
     @Post("/send-sms-code")
     @AllowAnonymous
-    @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "SMS code sending limit exceeded, please try again later")
+    @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = SystemErrorCodes.SMS_SEND_RATE_LIMITED)
     suspend fun sendSmsCode(@Body request: SendSmsCodeRequest) {
         authLogic.sendSmsCode(request.mobile, request.scene)
     }
 
     @Post("/reset-password")
     @AllowAnonymous
-    @RateLimit(windowSeconds = 300, maxRequests = 5, scope = RateLimitScope.IP, message = "Password reset attempts exceeded, please try again later")
+    @RateLimit(windowSeconds = 300, maxRequests = 5, scope = RateLimitScope.IP, message = SystemErrorCodes.PASSWORD_RESET_RATE_LIMITED)
     suspend fun resetPassword(@Body request: ResetPasswordRequest) {
         authLogic.resetPassword(request.mobile, request.smsCode, request.newPassword)
     }
@@ -157,7 +158,7 @@ class AuthController(
 
     @Post("/social-login")
     @AllowAnonymous
-    @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Social login attempts exceeded, please try again later")
+    @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = SystemErrorCodes.SOCIAL_LOGIN_RATE_LIMITED)
     suspend fun socialLogin(http: HttpContext, @Body request: SocialLoginRequest): LoginResponse {
         return authLogic.socialLogin(request.socialType, request.code, request.redirectUri ?: "").also { issueSession(http, it) }
     }

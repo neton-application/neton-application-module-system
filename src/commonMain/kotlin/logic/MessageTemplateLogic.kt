@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import controller.admin.message.dto.MessageTemplateVO
 import dto.PageResponse
 import model.MessageChannel
@@ -49,7 +51,7 @@ class MessageTemplateLogic(
 
     suspend fun getById(id: Long): MessageTemplateVO {
         val template = MessageTemplateTable.get(id)
-            ?: throw NotFoundException("Message template not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_TEMPLATE_NOT_FOUND)
         return template.toVO()
     }
 
@@ -64,20 +66,20 @@ class MessageTemplateLogic(
             MessageTemplate::code eq template.code
         }
         if (existing != null) {
-            throw BadRequestException("Template code already exists")
+            throw HttpException(NetonErrorCode.RESOURCE_ALREADY_EXISTS, SystemErrorCodes.MESSAGE_TEMPLATE_CODE_EXISTS, SystemErrorCodes.field("code", SystemErrorCodes.MESSAGE_TEMPLATE_CODE_EXISTS))
         }
         return MessageTemplateTable.insert(template).id
     }
 
     suspend fun update(template: MessageTemplate) {
         MessageTemplateTable.get(template.id)
-            ?: throw NotFoundException("Message template not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_TEMPLATE_NOT_FOUND)
         MessageTemplateTable.update(template)
     }
 
     suspend fun delete(id: Long) {
         MessageTemplateTable.get(id)
-            ?: throw NotFoundException("Message template not found")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_TEMPLATE_NOT_FOUND)
         MessageTemplateTable.destroy(id)
     }
 

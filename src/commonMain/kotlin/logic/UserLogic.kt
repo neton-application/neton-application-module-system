@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import dto.PageResponse
 import controller.admin.role.dto.RoleVO
 import controller.admin.user.dto.CreateUserRequest
@@ -67,13 +69,13 @@ class UserLogic(
 
     suspend fun getById(id: Long): UserVO {
         val user = UserTable.get(id)
-            ?: throw NotFoundException("User not found")
+            ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
         return user.toVO()
     }
 
     suspend fun getUserWithRoles(id: Long): UserWithRolesVO {
         val user = UserTable.get(id)
-            ?: throw NotFoundException("User not found")
+            ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
 
         val userRoles = UserRoleTable.query {
             where { UserRole::userId eq id }
@@ -111,7 +113,7 @@ class UserLogic(
         }
 
         if (existing != null) {
-            throw BadRequestException("Username already exists")
+            throw HttpException(NetonErrorCode.RESOURCE_ALREADY_EXISTS, SystemErrorCodes.USERNAME_EXISTS, SystemErrorCodes.field("username", SystemErrorCodes.USERNAME_EXISTS))
         }
 
         val user = User(
@@ -130,7 +132,7 @@ class UserLogic(
 
     suspend fun update(request: UpdateUserRequest) {
         val existing = UserTable.get(request.id)
-            ?: throw NotFoundException("User not found")
+            ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
 
         val updated = existing.copy(
             nickname = request.nickname ?: existing.nickname,
@@ -150,7 +152,7 @@ class UserLogic(
 
     suspend fun updatePassword(id: Long, newPassword: String) {
         val user = UserTable.get(id)
-            ?: throw NotFoundException("User not found")
+            ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
 
         UserTable.update(user.copy(passwordHash = PasswordHasher.hash(newPassword)))
         // 管理员重置了别人的密码：那个人已登录的会话全部作废（评审 R04）。
@@ -160,7 +162,7 @@ class UserLogic(
     /** 本人改资料：只动展示类字段，部门、状态、角色一律不经这里。 */
     suspend fun updateProfile(id: Long, request: ProfileUpdateRequest) {
         val existing = UserTable.get(id)
-            ?: throw NotFoundException("User not found")
+            ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
         UserTable.update(
             existing.copy(
                 nickname = request.nickname ?: existing.nickname,
@@ -174,12 +176,12 @@ class UserLogic(
     /** 本人改密码：先验旧密码。管理员重置别人的密码走 [updatePassword]，不需要旧密码。 */
     suspend fun changeOwnPassword(id: Long, oldPassword: String, newPassword: String) {
         val user = UserTable.get(id)
-            ?: throw NotFoundException("User not found")
+            ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
         if (!PasswordHasher.verify(oldPassword, user.passwordHash).verified) {
-            throw BadRequestException("当前密码不正确")
+            throw BadRequestException(SystemErrorCodes.OLD_PASSWORD_INCORRECT, SystemErrorCodes.field("oldPassword", SystemErrorCodes.OLD_PASSWORD_INCORRECT))
         }
         if (oldPassword == newPassword) {
-            throw BadRequestException("新密码不能与当前密码相同")
+            throw BadRequestException(SystemErrorCodes.NEW_PASSWORD_SAME_AS_OLD, SystemErrorCodes.field("newPassword", SystemErrorCodes.NEW_PASSWORD_SAME_AS_OLD))
         }
         UserTable.update(user.copy(passwordHash = PasswordHasher.hash(newPassword)))
         // 本人改密：其他设备上的会话全部作废，当前会话也要重新登录 —— 改密往往正是因为怀疑被盗用。
@@ -188,7 +190,7 @@ class UserLogic(
 
     suspend fun updateStatus(id: Long, status: Int) {
         val user = UserTable.get(id)
-            ?: throw NotFoundException("User not found")
+            ?: throw NotFoundException(SystemErrorCodes.USER_NOT_FOUND)
 
         UserTable.update(user.copy(status = status))
     }

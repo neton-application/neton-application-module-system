@@ -46,7 +46,7 @@ class NoticeLogic(
 
     suspend fun getById(id: Long): NoticeVO {
         val notice = NoticeTable.get(id)
-            ?: throw NotFoundException("Notice not found")
+            ?: throw NotFoundException(SystemErrorCodes.NOTICE_NOT_FOUND)
         return notice.toVO()
     }
 
@@ -63,7 +63,7 @@ class NoticeLogic(
 
     suspend fun update(request: UpdateNoticeRequest) {
         NoticeTable.get(request.id)
-            ?: throw NotFoundException("Notice not found")
+            ?: throw NotFoundException(SystemErrorCodes.NOTICE_NOT_FOUND)
         NoticeTable.update(
             Notice(
                 id = request.id,
@@ -77,7 +77,7 @@ class NoticeLogic(
 
     suspend fun delete(id: Long) {
         NoticeTable.get(id)
-            ?: throw NotFoundException("Notice not found")
+            ?: throw NotFoundException(SystemErrorCodes.NOTICE_NOT_FOUND)
         NoticeTable.destroy(id)
     }
 

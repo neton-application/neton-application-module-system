@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import controller.admin.post.dto.CreatePostRequest
 import controller.admin.post.dto.PostVO
 import controller.admin.post.dto.UpdatePostRequest
@@ -54,14 +56,14 @@ class PostLogic(
 
     suspend fun getById(id: Long): PostVO {
         val post = PostTable.get(id)
-            ?: throw NotFoundException("Post not found")
+            ?: throw NotFoundException(SystemErrorCodes.POST_NOT_FOUND)
         return post.toVO()
     }
 
     suspend fun create(request: CreatePostRequest): Long {
         val existing = PostTable.oneWhere { Post::code eq request.code }
         if (existing != null) {
-            throw BadRequestException("Post code already exists")
+            throw HttpException(NetonErrorCode.RESOURCE_ALREADY_EXISTS, SystemErrorCodes.POST_CODE_EXISTS, SystemErrorCodes.field("code", SystemErrorCodes.POST_CODE_EXISTS))
         }
         return PostTable.insert(
             Post(
@@ -75,7 +77,7 @@ class PostLogic(
 
     suspend fun update(request: UpdatePostRequest) {
         PostTable.get(request.id)
-            ?: throw NotFoundException("Post not found")
+            ?: throw NotFoundException(SystemErrorCodes.POST_NOT_FOUND)
         PostTable.update(
             Post(
                 id = request.id,
@@ -89,7 +91,7 @@ class PostLogic(
 
     suspend fun delete(id: Long) {
         PostTable.get(id)
-            ?: throw NotFoundException("Post not found")
+            ?: throw NotFoundException(SystemErrorCodes.POST_NOT_FOUND)
         PostTable.destroy(id)
     }
 

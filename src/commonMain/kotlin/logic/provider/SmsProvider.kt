@@ -1,5 +1,6 @@
 package logic.provider
 
+import logic.SystemErrorCodes
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -41,10 +42,8 @@ class SmsProvider(
         val cfg = parseConfig(config)
         if (cfg == null) {
             log.warn("sms.provider.not_configured receiver=${mask(receiver)}")
-            throw ProviderNotImplementedException(
-                "SMS provider is not configured. Set username/password in the sms channel config " +
-                    "or via SMS_SMSBAO_USERNAME / SMS_SMSBAO_PASSWORD."
-            )
+            // 在 sms 通道配置里填 username/password，或设 SMS_SMSBAO_USERNAME / SMS_SMSBAO_PASSWORD。
+            throw ProviderNotImplementedException(SystemErrorCodes.SMS_PROVIDER_NOT_CONFIGURED)
         }
 
         val mobile = toLocalNumber(receiver)

@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import controller.admin.dict.dto.DictDataVO
 import controller.admin.dict.dto.DictTypeVO
 import dto.PageResponse
@@ -62,7 +64,7 @@ class DictLogic(
 
     suspend fun getDictTypeById(id: Long): DictTypeVO {
         val dictType = DictTypeTable.get(id)
-            ?: throw NotFoundException("Dict type not found")
+            ?: throw NotFoundException(SystemErrorCodes.DICT_TYPE_NOT_FOUND)
         return dictType.toVO()
     }
 
@@ -72,7 +74,7 @@ class DictLogic(
         }
 
         if (existing != null) {
-            throw BadRequestException("Dict type already exists")
+            throw HttpException(NetonErrorCode.RESOURCE_ALREADY_EXISTS, SystemErrorCodes.DICT_TYPE_EXISTS, SystemErrorCodes.field("type", SystemErrorCodes.DICT_TYPE_EXISTS))
         }
 
         return DictTypeTable.insert(dictType).id
@@ -80,11 +82,11 @@ class DictLogic(
 
     suspend fun updateDictType(dictType: DictType) {
         val existing = DictTypeTable.get(dictType.id)
-            ?: throw NotFoundException("Dict type not found")
+            ?: throw NotFoundException(SystemErrorCodes.DICT_TYPE_NOT_FOUND)
 
         // dictType is the stable foreign key used by all dictionary values and caches.
         if (existing.type != dictType.type) {
-            throw BadRequestException("Dict type identifier cannot be changed")
+            throw BadRequestException(SystemErrorCodes.DICT_TYPE_IMMUTABLE, SystemErrorCodes.field("type", SystemErrorCodes.DICT_TYPE_IMMUTABLE))
         }
 
         DictTypeTable.update(dictType)
@@ -95,7 +97,7 @@ class DictLogic(
 
     suspend fun deleteDictType(id: Long) {
         val dictType = DictTypeTable.get(id)
-            ?: throw NotFoundException("Dict type not found")
+            ?: throw NotFoundException(SystemErrorCodes.DICT_TYPE_NOT_FOUND)
 
         // Check if dict data exists
         val dataCount = DictDataTable.query {
@@ -103,7 +105,7 @@ class DictLogic(
         }.list()
 
         if (dataCount.isNotEmpty()) {
-            throw BadRequestException("Cannot delete dict type with associated data")
+            throw HttpException(NetonErrorCode.OPERATION_CONFLICT, SystemErrorCodes.DICT_TYPE_HAS_DATA)
         }
 
         DictTypeTable.destroy(id)
@@ -149,7 +151,7 @@ class DictLogic(
 
     suspend fun getDictDataById(id: Long): DictDataVO {
         val dictData = DictDataTable.get(id)
-            ?: throw NotFoundException("Dict data not found")
+            ?: throw NotFoundException(SystemErrorCodes.DICT_DATA_NOT_FOUND)
         return dictData.toVO()
     }
 
@@ -161,7 +163,7 @@ class DictLogic(
 
     suspend fun updateDictData(dictData: DictData) {
         val existing = DictDataTable.get(dictData.id)
-            ?: throw NotFoundException("Dict data not found")
+            ?: throw NotFoundException(SystemErrorCodes.DICT_DATA_NOT_FOUND)
 
         DictDataTable.update(dictData)
 
@@ -174,7 +176,7 @@ class DictLogic(
 
     suspend fun deleteDictData(id: Long) {
         val dictData = DictDataTable.get(id)
-            ?: throw NotFoundException("Dict data not found")
+            ?: throw NotFoundException(SystemErrorCodes.DICT_DATA_NOT_FOUND)
 
         DictDataTable.destroy(id)
         cache.delete("$DICT_CACHE_PREFIX${dictData.dictType}")

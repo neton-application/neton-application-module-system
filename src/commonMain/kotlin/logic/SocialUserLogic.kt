@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import controller.admin.social.dto.SocialUserVO
 import logic.provider.SocialProvider
 import logic.provider.SocialUserInfo
@@ -21,7 +23,7 @@ class SocialUserLogic(
      */
     suspend fun getAuthRedirectUrl(socialType: String, redirectUri: String): String {
         val provider = socialProviders[socialType]
-            ?: throw BadRequestException("Social provider not configured: $socialType")
+            ?: throw BadRequestException(SystemErrorCodes.SOCIAL_PROVIDER_NOT_CONFIGURED, SystemErrorCodes.field("socialType", SystemErrorCodes.SOCIAL_PROVIDER_NOT_CONFIGURED))
 
         // In production, config would come from MessageChannel or app settings
         return provider.getAuthRedirectUrl("{}", redirectUri)
@@ -38,12 +40,12 @@ class SocialUserLogic(
         userType: Int = 1  // 1=admin, 2=member
     ): SocialUser {
         val provider = socialProviders[socialType]
-            ?: throw BadRequestException("Social provider not configured: $socialType")
+            ?: throw BadRequestException(SystemErrorCodes.SOCIAL_PROVIDER_NOT_CONFIGURED, SystemErrorCodes.field("socialType", SystemErrorCodes.SOCIAL_PROVIDER_NOT_CONFIGURED))
 
         val userInfo = provider.getUserInfo("{}", code, redirectUri)
 
         if (userInfo.openId.isBlank()) {
-            throw BadRequestException("Failed to get social user info")
+            throw BadRequestException(SystemErrorCodes.SOCIAL_USER_INFO_FAILED)
         }
 
         // Find existing binding
@@ -93,11 +95,11 @@ class SocialUserLogic(
         redirectUri: String
     ): SocialUserVO {
         val provider = socialProviders[socialType]
-            ?: throw BadRequestException("Social provider not configured: $socialType")
+            ?: throw BadRequestException(SystemErrorCodes.SOCIAL_PROVIDER_NOT_CONFIGURED, SystemErrorCodes.field("socialType", SystemErrorCodes.SOCIAL_PROVIDER_NOT_CONFIGURED))
 
         val userInfo = provider.getUserInfo("{}", code, redirectUri)
         if (userInfo.openId.isBlank()) {
-            throw BadRequestException("Failed to get social user info")
+            throw BadRequestException(SystemErrorCodes.SOCIAL_USER_INFO_FAILED)
         }
 
         // Check if already bound
@@ -110,7 +112,7 @@ class SocialUserLogic(
         }
 
         if (existing != null) {
-            throw BadRequestException("Social account already bound")
+            throw HttpException(NetonErrorCode.RESOURCE_ALREADY_EXISTS, SystemErrorCodes.SOCIAL_ACCOUNT_ALREADY_BOUND)
         }
 
         // Check if this social account is bound to another user
@@ -123,7 +125,7 @@ class SocialUserLogic(
         }
 
         if (otherBinding != null && otherBinding.userId != 0L) {
-            throw BadRequestException("This social account is already bound to another user")
+            throw HttpException(NetonErrorCode.OPERATION_CONFLICT, SystemErrorCodes.SOCIAL_ACCOUNT_BOUND_TO_OTHER)
         }
 
         val socialUser = if (otherBinding != null) {
@@ -158,7 +160,7 @@ class SocialUserLogic(
                 SocialUser::userType eq userType,
                 SocialUser::socialType eq socialType
             )
-        } ?: throw NotFoundException("Social binding not found")
+        } ?: throw NotFoundException(SystemErrorCodes.SOCIAL_BINDING_NOT_FOUND)
 
         SocialUserTable.destroy(existing.id)
     }
@@ -182,7 +184,7 @@ class SocialUserLogic(
      */
     suspend fun getById(id: Long): SocialUserVO {
         val socialUser = SocialUserTable.get(id)
-            ?: throw NotFoundException("Social user not found")
+            ?: throw NotFoundException(SystemErrorCodes.SOCIAL_USER_NOT_FOUND)
         return socialUser.toVO()
     }
 

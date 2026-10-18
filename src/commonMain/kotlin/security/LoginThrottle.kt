@@ -1,5 +1,6 @@
 package security
 
+import logic.SystemErrorCodes
 import neton.core.http.HttpException
 import neton.core.http.NetonErrorCode
 import neton.redis.RedisClient
@@ -22,7 +23,7 @@ class LoginThrottle(private val redis: RedisClient?, private val digestKey: Byte
 
     class Locked(val retryAfterSeconds: Long) : HttpException(
         NetonErrorCode.RATE_LIMIT_EXCEEDED,
-        "Too many failed attempts, please try again later",
+        SystemErrorCodes.LOGIN_LOCKED,
         headers = mapOf("Retry-After" to retryAfterSeconds.toString()),
     )
 

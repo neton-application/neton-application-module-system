@@ -1,5 +1,7 @@
 package logic
 
+import neton.core.http.NetonErrorCode
+import neton.core.http.HttpException
 import model.MessageChannel
 import model.MessageLog
 import table.MessageChannelTable
@@ -64,15 +66,15 @@ class MessageSendLogic(
         redact: Set<String> = emptySet(),
     ): Boolean {
         val template = messageTemplateLogic.getByCode(templateCode)
-            ?: throw NotFoundException("Message template not found: $templateCode")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_TEMPLATE_NOT_FOUND)
 
         val channel = MessageChannelTable.get(template.channelId)
-            ?: throw NotFoundException("Message channel not found for template: $templateCode")
+            ?: throw NotFoundException(SystemErrorCodes.MESSAGE_CHANNEL_NOT_FOUND)
 
         val content = messageTemplateLogic.renderContent(template.content, params)
 
         val provider = messageChannelLogic.getProvider(channel.type)
-            ?: throw NotFoundException("No provider for channel type: ${channel.type}")
+            ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.MESSAGE_PROVIDER_UNAVAILABLE)
 
         val loggedContent = redact.fold(content) { acc, secret -> if (secret.isEmpty()) acc else acc.replace(secret, REDACTED) }
         val loggedParams = params.mapValues { (_, v) -> if (v in redact) REDACTED else v }.toString()

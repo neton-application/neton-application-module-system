@@ -10,6 +10,8 @@ import security.LoginThrottle
 import security.SessionRevocation
 import neton.security.jwt.JwtAuthenticator
 import neton.core.http.BadRequestException
+import neton.core.http.HttpException
+import neton.core.http.NetonErrorCode
 import neton.core.http.NotFoundException
 import neton.logging.Logger
 import neton.database.dsl.*
@@ -37,7 +39,7 @@ class AuthLogic(
         const val ACCESS_TOKEN_EXPIRES = 7200L   // 2 hours in seconds
         const val REFRESH_TOKEN_EXPIRES = 604800L // 7 days in seconds
 
-        const val LOGIN_FAILED = "Invalid username or password"
+        const val LOGIN_FAILED = SystemErrorCodes.INVALID_CREDENTIALS
         const val SMS_PURPOSE_LOGIN = "login"
         const val SMS_PURPOSE_RESET_PASSWORD = "reset_password"
         private val SMS_PURPOSES = setOf(SMS_PURPOSE_LOGIN, SMS_PURPOSE_RESET_PASSWORD)
@@ -93,30 +95,30 @@ class AuthLogic(
 
     suspend fun refreshToken(refreshToken: String): LoginResponse {
         val verified = try { jwt.verifyToken(refreshToken) } catch (_: AuthenticationException) {
-            throw BadRequestException("Invalid or expired refresh token")
+            throw BadRequestException(SystemErrorCodes.REFRESH_TOKEN_INVALID)
         }
         val id = verified.identity.userId.value.toLong()
         // 域必须是管理员：同一把密钥也签终端用户令牌，两边 id 会撞（评审 R01）。
         if (verified.claimString(TokenRealm.CLAIM) != AdminTokenRealm.NAME ||
             verified.claimString(TokenRealm.TYPE_CLAIM) != TokenRealm.TYPE_REFRESH ||
             !mfa.accepts(id, verified.claimString("mfa_revision")?.toLongOrNull(), verified.claimString("mfa_verified") == "true")) {
-            throw BadRequestException("Login required")
+            throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
         }
-        val user = UserTable.get(id) ?: throw BadRequestException("Login required")
-        if (user.status != 1) throw BadRequestException("Login required")
+        val user = UserTable.get(id) ?: throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
+        if (user.status != 1) throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
         val sessionVersion = sessions?.sessionVersion(id) ?: 0L
         if (verified.claimString(AdminTokenRealm.SESSION_VERSION_CLAIM)?.toLongOrNull() != sessionVersion) {
-            throw BadRequestException("Login required")
+            throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
         }
-        val sessionId = verified.claimString(SessionRevocation.SESSION_CLAIM) ?: throw BadRequestException("Login required")
-        if (revocation.isRevoked(AdminTokenRealm.NAME, sessionId)) throw BadRequestException("Login required")
+        val sessionId = verified.claimString(SessionRevocation.SESSION_CLAIM) ?: throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
+        if (revocation.isRevoked(AdminTokenRealm.NAME, sessionId)) throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
         // 刷新令牌只能用一次：并发窗口外的重复使用说明它被复制了，整个会话作废（评审 R04）。
-        val jti = verified.claimString(SessionRevocation.TOKEN_ID_CLAIM) ?: throw BadRequestException("Login required")
+        val jti = verified.claimString(SessionRevocation.TOKEN_ID_CLAIM) ?: throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
         val nowSeconds = Clock.System.now().toEpochMilliseconds() / 1000
         if (revocation.claimRefresh(AdminTokenRealm.NAME, jti, REFRESH_TOKEN_EXPIRES, nowSeconds) == SessionRevocation.RefreshUse.REUSED) {
             revocation.revokeSession(AdminTokenRealm.NAME, sessionId, REFRESH_TOKEN_EXPIRES)
             log.warn("auth.admin.refresh_reused", mapOf("userId" to id))
-            throw BadRequestException("Login required")
+            throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
         }
         return issue(user, verified.claimString("mfa_verified") == "true", verified.claimString("mfa_revision")?.toLongOrNull() ?: 0, sessionId)
     }
@@ -132,8 +134,8 @@ class AuthLogic(
 
     suspend fun verifyMfa(token: String, code: String): LoginResponse {
         val completed = mfa.verify(token, code)
-        val user = UserTable.get(completed.userId) ?: throw BadRequestException("Login required")
-        if (user.status != 1) throw BadRequestException("Login required")
+        val user = UserTable.get(completed.userId) ?: throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
+        if (user.status != 1) throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
         return issue(user, true, completed.revision)
     }
 
@@ -144,7 +146,7 @@ class AuthLogic(
      * [sessionId] 为空表示新登录，生成新的会话 id；刷新时沿用原会话，退出时据此整体吊销。
      */
     private suspend fun issue(user: User, mfaVerified: Boolean, revision: Long, sessionId: String? = null): LoginResponse {
-        if (!mfa.accepts(user.id, revision, mfaVerified)) throw BadRequestException("Login required")
+        if (!mfa.accepts(user.id, revision, mfaVerified)) throw BadRequestException(SystemErrorCodes.LOGIN_REQUIRED)
         val claims = mapOf<String, Any>(
             TokenRealm.CLAIM to AdminTokenRealm.NAME,
             SessionRevocation.SESSION_CLAIM to (sessionId ?: SessionRevocation.newId()),
@@ -174,8 +176,8 @@ class AuthLogic(
      * 既不让人借此枚举管理员手机号，也不替陌生号码付短信费。
      */
     suspend fun sendSmsCode(mobile: String, scene: String) {
-        val codes = verificationCodes ?: throw BadRequestException("SMS service not configured")
-        if (scene !in SMS_PURPOSES) throw BadRequestException("Invalid scene: $scene")
+        val codes = verificationCodes ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.SMS_NOT_CONFIGURED)
+        if (scene !in SMS_PURPOSES) throw BadRequestException(SystemErrorCodes.SMS_SCENE_INVALID, SystemErrorCodes.field("scene", SystemErrorCodes.SMS_SCENE_INVALID))
         if (UserTable.oneWhere { User::mobile eq mobile }?.status != 1) {
             log.info("auth.admin.sms_skipped_unknown_mobile", mapOf("scene" to scene))
             return
@@ -185,7 +187,7 @@ class AuthLogic(
 
     suspend fun resetPassword(mobile: String, smsCode: String, newPassword: String) {
         requireSmsCode(mobile, SMS_PURPOSE_RESET_PASSWORD, smsCode)
-        val user = UserTable.oneWhere { User::mobile eq mobile } ?: throw BadRequestException("Invalid or expired SMS code")
+        val user = UserTable.oneWhere { User::mobile eq mobile } ?: throw BadRequestException(SystemErrorCodes.SMS_CODE_INVALID, SystemErrorCodes.field("smsCode", SystemErrorCodes.SMS_CODE_INVALID))
         UserTable.update(user.copy(passwordHash = PasswordHasher.hash(newPassword)))
         // 重置密码通常意味着怀疑被盗用：已登录的会话全部作废（评审 R04）。
         sessions?.revokeAll(user.id)
@@ -193,11 +195,11 @@ class AuthLogic(
     }
 
     private suspend fun requireSmsCode(mobile: String, purpose: String, code: String) {
-        val codes = verificationCodes ?: throw BadRequestException("SMS service not configured")
+        val codes = verificationCodes ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.SMS_NOT_CONFIGURED)
         when (codes.verify(AdminTokenRealm.NAME, purpose, VerificationCodeService.Channel.SMS, mobile, code)) {
             VerificationCodeService.Result.OK -> Unit
-            VerificationCodeService.Result.LOCKED -> throw BadRequestException("Too many wrong attempts, please request a new code")
-            else -> throw BadRequestException("Invalid or expired SMS code")
+            VerificationCodeService.Result.LOCKED -> throw BadRequestException(SystemErrorCodes.SMS_CODE_LOCKED, SystemErrorCodes.field("smsCode", SystemErrorCodes.SMS_CODE_LOCKED))
+            else -> throw BadRequestException(SystemErrorCodes.SMS_CODE_INVALID, SystemErrorCodes.field("smsCode", SystemErrorCodes.SMS_CODE_INVALID))
         }
     }
 
@@ -206,7 +208,7 @@ class AuthLogic(
      */
     suspend fun socialAuthRedirect(socialType: String, redirectUri: String): String {
         val social = socialUserLogic
-            ?: throw BadRequestException("Social login not configured")
+            ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.SOCIAL_LOGIN_NOT_CONFIGURED)
         return social.getAuthRedirectUrl(socialType, redirectUri)
     }
 
@@ -216,19 +218,19 @@ class AuthLogic(
      */
     suspend fun socialLogin(socialType: String, code: String, redirectUri: String): LoginResponse {
         val social = socialUserLogic
-            ?: throw BadRequestException("Social login not configured")
+            ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, SystemErrorCodes.SOCIAL_LOGIN_NOT_CONFIGURED)
 
         val socialUser = social.socialLogin(socialType, code, redirectUri, userType = 1)
 
         if (socialUser.userId == 0L) {
-            throw BadRequestException("Social account not bound to any admin user. Please bind first.")
+            throw BadRequestException(SystemErrorCodes.SOCIAL_ACCOUNT_NOT_BOUND)
         }
 
         val user = UserTable.get(socialUser.userId)
-            ?: throw NotFoundException("Bound user not found")
+            ?: throw NotFoundException(SystemErrorCodes.SOCIAL_BOUND_USER_NOT_FOUND)
 
         if (user.status == 0) {
-            throw BadRequestException("User account is disabled")
+            throw BadRequestException(SystemErrorCodes.ACCOUNT_DISABLED)
         }
 
         return completeFirstFactor(user)

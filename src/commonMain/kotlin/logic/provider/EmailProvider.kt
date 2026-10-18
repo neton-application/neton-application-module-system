@@ -1,5 +1,6 @@
 package logic.provider
 
+import logic.SystemErrorCodes
 import kotlinx.serialization.json.*
 import neton.core.http.HttpHeaders
 import neton.http.client.HttpClient
@@ -43,7 +44,7 @@ class EmailProvider(
         val (subject, body) = splitSubject(content)
         val html = looksLikeHtml(body)
         if (cfg.vendor == "smtp") {
-            val transport = smtp ?: throw ProviderNotImplementedException("SMTP 发信未装配（应用没有 bind SmtpTransport）")
+            val transport = smtp ?: throw ProviderNotImplementedException(SystemErrorCodes.SMTP_TRANSPORT_UNAVAILABLE) // 应用没有 bind SmtpTransport
             val host = cfg.host ?: throw IllegalArgumentException("SMTP 主机为空")
             transport.send(
                 neton.http.mail.SmtpAccount(host, cfg.port, cfg.username, cfg.password, cfg.ssl, cfg.starttls),
@@ -99,7 +100,11 @@ class EmailProvider(
                     put("text", if (html) "" else body); put("html", if (html) body else "")
                 }.toString()),
             )
-            else -> throw ProviderNotImplementedException("邮件通道 vendor=${cfg.vendor} 未配置：请在邮箱账号里选 smtp / resend / sendgrid / mailgun / brevo / http 之一。")
+            else -> {
+                // 邮箱账号里只能选 smtp / resend / sendgrid / mailgun / brevo / http 之一。
+                log.warn("email.vendor.unsupported vendor=${cfg.vendor}")
+                throw ProviderNotImplementedException(SystemErrorCodes.EMAIL_VENDOR_UNSUPPORTED)
+            }
         }
         val res = http.request(request)
         if (res.statusCode !in 200..299) {

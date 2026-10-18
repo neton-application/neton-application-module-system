@@ -1,5 +1,6 @@
 package controller.admin.log
 
+import logic.SystemErrorCodes
 import dto.PageResponse
 import logic.LogLogic
 import model.LoginLog
@@ -27,6 +28,6 @@ class LoginLogController(
     @Permission("system:login-log:query")
     suspend fun get(@PathVariable id: Long): LoginLog {
         return logLogic.getLoginLogById(id)
-            ?: throw NotFoundException("Login log not found")
+            ?: throw NotFoundException(SystemErrorCodes.LOGIN_LOG_NOT_FOUND)
     }
 }

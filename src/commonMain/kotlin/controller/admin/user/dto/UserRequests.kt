@@ -1,5 +1,6 @@
 package controller.admin.user.dto
 
+import logic.SystemErrorCodes
 import kotlinx.serialization.Serializable
 import neton.validation.annotations.Email
 import neton.validation.annotations.Max
@@ -30,7 +31,7 @@ data class CreateUserRequest(
     @property:Email
     val email: String? = null,
 
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = "^1\\d{10}$", message = SystemErrorCodes.MOBILE_INVALID)
     val mobile: String? = null,
 
     @property:Min(0)
@@ -64,7 +65,7 @@ data class UpdateUserRequest(
     @property:Email
     val email: String? = null,
 
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = "^1\\d{10}$", message = SystemErrorCodes.MOBILE_INVALID)
     val mobile: String? = null,
 
     @property:Min(0)
@@ -122,7 +123,7 @@ data class ProfileUpdateRequest(
     @property:Email
     val email: String? = null,
 
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = "^1\\d{10}$", message = SystemErrorCodes.MOBILE_INVALID)
     val mobile: String? = null,
 
     @property:Min(0)

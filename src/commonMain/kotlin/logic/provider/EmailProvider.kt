@@ -28,6 +28,11 @@ class EmailProvider(
     private val http: HttpClient,
     /** SMTP 发信实现，由应用装配层 bind（通常是 neton-http 的 `defaultSmtpTransport()`）；没绑就不支持 smtp */
     private val smtp: neton.http.mail.SmtpTransport? = null,
+    /**
+     * SMTP 主机来自后台的邮箱账号：按运维出站策略校验并钉住地址（[neton.http.client.EgressSettings.smtpPolicy]）。
+     * [http] 同理必须是受控客户端（endpoint 也是后台数据）。
+     */
+    private val smtpPolicy: neton.http.client.OutboundAddressPolicy,
 ) : MessageProvider {
     override val type: String = "email"
     private val json = Json { ignoreUnknownKeys = true }
@@ -46,10 +51,16 @@ class EmailProvider(
         if (cfg.vendor == "smtp") {
             val transport = smtp ?: throw ProviderNotImplementedException(SystemErrorCodes.SMTP_TRANSPORT_UNAVAILABLE) // 应用没有 bind SmtpTransport
             val host = cfg.host ?: throw IllegalArgumentException("SMTP 主机为空")
-            transport.send(
-                neton.http.mail.SmtpAccount(host, cfg.port, cfg.username, cfg.password, cfg.ssl, cfg.starttls),
-                neton.http.mail.SmtpMessage(cfg.from, cfg.fromName, to, subject, body, html),
-            )
+            try {
+                transport.send(
+                    neton.http.mail.SmtpAccount(host, cfg.port, cfg.username, cfg.password, cfg.ssl, cfg.starttls),
+                    neton.http.mail.SmtpMessage(cfg.from, cfg.fromName, to, subject, body, html),
+                    smtpPolicy,
+                )
+            } catch (e: neton.http.mail.SmtpTargetRejectedException) {
+                log.warn("email.endpoint.forbidden vendor=smtp host=$host reason=${e.reason} detail=${e.message}")
+                throw MessageEndpointForbiddenException()
+            }
             log.info("email.sent vendor=smtp host=$host to=${to.joinToString(",") { mask(it) }}")
             return true
         }
@@ -106,7 +117,13 @@ class EmailProvider(
                 throw ProviderNotImplementedException(SystemErrorCodes.EMAIL_VENDOR_UNSUPPORTED)
             }
         }
-        val res = http.request(request)
+        val res = try {
+            http.request(request)
+        } catch (e: neton.http.client.HttpClientException) {
+            val rejected = e.error as? neton.http.client.HttpClientError.TargetRejected ?: throw e
+            log.warn("email.endpoint.forbidden vendor=${cfg.vendor} reason=${rejected.reason} detail=${rejected.message}")
+            throw MessageEndpointForbiddenException()
+        }
         if (res.statusCode !in 200..299) {
             log.warn("email.send.failed vendor=${cfg.vendor} status=${res.statusCode} body=${res.body.take(300)}")
             throw IllegalStateException("email send failed: HTTP ${res.statusCode} ${res.body.take(200)}")

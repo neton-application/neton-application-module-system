@@ -63,8 +63,21 @@ object SystemRuntimeBootstrap {
             verifyUrl = neton.core.config.getEnv(logic.CaptchaService.ENV_VERIFY_URL)?.trim()?.takeIf { it.isNotEmpty() }
                 ?: logic.CaptchaService.DEFAULT_VERIFY_URL,
         ))
-        val smsProvider = SmsProvider(loggerFactory.get("provider.sms"), outboundHttp)
-        val emailProvider = EmailProvider(loggerFactory.get("provider.email"), outboundHttp, ctx.getOrNull(neton.http.mail.SmtpTransport::class))
+        // 运维出站策略（application.conf [egress]）：全进程唯一的一份，所有受控客户端都从这里建。
+        // 后台运行期可改的出站地址（短信 apiUrl、邮件 endpoint / SMTP 主机、支付网关、网关渠道……）一律走受控客户端；
+        // 地址写死在部署配置里的（人机验证、AI、存储、推送）继续用应用的普通客户端。
+        val egress = bindEgress(ctx, loggerFactory)
+        // 短信 / 邮件的地址都在后台的消息渠道配置里：用受控客户端（system 建、system 关）。
+        val messageHttp = egress.create { connectMillis = 3_000; requestMillis = 15_000; socketMillis = 15_000 }
+        ctx.lifecycle.register("system-message-http-client", object : neton.core.component.NetonLifecycle {
+            override suspend fun start() = Unit
+            override suspend fun stop() = messageHttp.close()
+        })
+        val smsProvider = SmsProvider(loggerFactory.get("provider.sms"), messageHttp)
+        val emailProvider = EmailProvider(
+            loggerFactory.get("provider.email"), messageHttp, ctx.getOrNull(neton.http.mail.SmtpTransport::class),
+            smtpPolicy = egress.settings.smtpPolicy,
+        )
         val messageProviders = mapOf<String, MessageProvider>("sms" to smsProvider, "email" to emailProvider)
 
         val googleProvider = GoogleSocialProvider(loggerFactory.get("provider.google"))
@@ -116,6 +129,35 @@ object SystemRuntimeBootstrap {
         ctx.bind(DictLogic::class, DictLogic(loggerFactory.get("logic.dict"), infra.SimpleCache()))
     }
 
+}
+
+/**
+ * 绑定全进程唯一的 [neton.http.client.GuardedHttpClientProvider]（宿主可先绑定自己的）：策略来自
+ * application.conf `[egress]`（[neton.http.client.EgressSettings]），客户端经应用绑定的 `HttpClientProvider` 建
+ * （模块不带引擎）。system 是每个宿主第一个初始化的模块，网关、支付、infra 都在它之后取用。
+ * 放行列表非空时启动打 WARN：那是运维有意打开的内网通路，要让人看得见。
+ */
+internal fun bindEgress(ctx: NetonContext, loggerFactory: LoggerFactory): neton.http.client.GuardedHttpClientProvider {
+    val bound = ctx.getOrNull(neton.http.client.GuardedHttpClientProvider::class)
+    val egress = bound ?: neton.http.client.GuardedHttpClientProvider(
+        neton.http.client.EgressSettings.load(ctx.args),
+    ) { block ->
+        val provider = ctx.getOrNull(neton.http.client.HttpClientProvider::class) ?: error(
+            "module-system needs an HttpClientProvider bound in NetonContext (guarded outbound clients). Bind one in " +
+                "the application: bind(HttpClientProvider::class, HttpClientProvider { HttpClient.create(it) }).",
+        )
+        provider.create(block)
+    }.also { ctx.bind(neton.http.client.GuardedHttpClientProvider::class, it) }
+    val log = loggerFactory.get("security.egress")
+    if (egress.settings.isRelaxed) {
+        log.warn(
+            "egress.allowlist.enabled: guarded outbound requests may reach the listed non-public targets",
+            mapOf("settings" to egress.settings.describe()),
+        )
+    } else {
+        log.info("egress.policy public-only", mapOf("settings" to egress.settings.describe()))
+    }
+    return egress
 }
 
 /**

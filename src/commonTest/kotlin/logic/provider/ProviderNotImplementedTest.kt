@@ -31,7 +31,7 @@ class ProviderNotImplementedTest {
             assertFailsWith<ProviderNotImplementedException> {
                 // 空配置 = 没选发信方式（vendor 既不是 smtp 也不是任何 HTTP 厂商）：
                 // 必须抛，不能装作发出去了。真实发信路径见 EmailProvider 的 vendor 分支。
-                EmailProvider(log, neton.http.testkit.ScriptedHttpClient()).send("a@b.com", "code 123456", "{}")
+                EmailProvider(log, neton.http.testkit.ScriptedHttpClient(), smtpPolicy = neton.http.client.OutboundAddressPolicy()).send("a@b.com", "code 123456", "{}")
             }
         }
     }

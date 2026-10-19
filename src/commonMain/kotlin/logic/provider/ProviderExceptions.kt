@@ -21,3 +21,10 @@ import neton.core.http.NetonErrorCode
  */
 class ProviderNotImplementedException(message: String) :
     HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, message)
+
+/**
+ * 消息渠道（短信 apiUrl、邮件 endpoint / SMTP 主机）配置的地址被运维出站策略拒绝：解析到回环 / 内网 / 链路本地、
+ * 端口不在放行列表、或解析不出。一个包都没发出去。放行内网中继要在部署配置 application.conf `[egress]` 里做。
+ */
+class MessageEndpointForbiddenException :
+    HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, logic.SystemErrorCodes.MESSAGE_ENDPOINT_FORBIDDEN)

@@ -30,7 +30,9 @@ import neton.logging.Logger
  */
 class SmsProvider(
     private val log: Logger,
-    /** 借用应用绑定的出站客户端；本类不创建、不关闭。 */
+    /**
+     * 受控出站客户端（apiUrl 是后台消息渠道里的数据，按运维出站策略校验并钉住地址）；本类不创建、不关闭。
+     */
     private val http: HttpClient,
 ) : MessageProvider {
 
@@ -66,6 +68,15 @@ class SmsProvider(
                 return false
             }
             resp.body.trim()
+        } catch (e: neton.http.client.HttpClientException) {
+            val rejected = e.error as? neton.http.client.HttpClientError.TargetRejected
+            if (rejected != null) {
+                // 渠道 apiUrl 指向出站策略不允许的地址：配置错误，明确报出来而不是当成一次发送失败
+                log.warn("sms.provider.endpoint_forbidden reason=${rejected.reason} detail=${rejected.message}")
+                throw MessageEndpointForbiddenException()
+            }
+            log.error("sms.provider.request_failed receiver=${mask(receiver)}: ${e.message}")
+            return false
         } catch (e: Exception) {
             log.error("sms.provider.request_failed receiver=${mask(receiver)}: ${e.message}")
             return false

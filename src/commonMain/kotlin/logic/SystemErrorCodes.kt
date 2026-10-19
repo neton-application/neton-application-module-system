@@ -110,6 +110,8 @@ object SystemErrorCodes {
     const val SMS_PROVIDER_NOT_CONFIGURED = "SMS_PROVIDER_NOT_CONFIGURED"
     const val SMTP_TRANSPORT_UNAVAILABLE = "SMTP_TRANSPORT_UNAVAILABLE"
     const val EMAIL_VENDOR_UNSUPPORTED = "EMAIL_VENDOR_UNSUPPORTED"
+    /** 消息渠道配置的地址（短信 apiUrl、邮件 endpoint、SMTP 主机）被运维出站策略 `[egress]` 拒绝。 */
+    const val MESSAGE_ENDPOINT_FORBIDDEN = "MESSAGE_ENDPOINT_FORBIDDEN"
 
     // ---- 日志 ----
     const val MESSAGE_LOG_NOT_FOUND = "MESSAGE_LOG_NOT_FOUND"

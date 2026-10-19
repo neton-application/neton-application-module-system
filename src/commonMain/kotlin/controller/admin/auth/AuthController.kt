@@ -96,6 +96,7 @@ class AuthController(
     @AllowAnonymous
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = SystemErrorCodes.LOGIN_RATE_LIMITED)
     suspend fun login(http: HttpContext, @Body request: LoginRequest): LoginResponse {
+        requireCaptcha(http, logic.CaptchaAction.ADMIN_LOGIN)
         return audited(http, request.username) {
             authLogic.login(request, http.request.clientAddress)
         }.also { issueSession(http, it) }
@@ -138,7 +139,8 @@ class AuthController(
     @Post("/send-sms-code")
     @AllowAnonymous
     @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = SystemErrorCodes.SMS_SEND_RATE_LIMITED)
-    suspend fun sendSmsCode(@Body request: SendSmsCodeRequest) {
+    suspend fun sendSmsCode(http: HttpContext, @Body request: SendSmsCodeRequest) {
+        requireCaptcha(http, logic.CaptchaAction.SEND_CODE)
         authLogic.sendSmsCode(request.mobile, request.scene)
     }
 
@@ -161,5 +163,12 @@ class AuthController(
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = SystemErrorCodes.SOCIAL_LOGIN_RATE_LIMITED)
     suspend fun socialLogin(http: HttpContext, @Body request: SocialLoginRequest): LoginResponse {
         return authLogic.socialLogin(request.socialType, request.code, request.redirectUri ?: "").also { issueSession(http, it) }
+    }
+
+    /** 人机验证在凭据校验之前：没过就不做密码哈希、不发短信。 */
+    private suspend fun requireCaptcha(http: HttpContext, action: logic.CaptchaAction) {
+        ctx.get(logic.CaptchaService::class).require(
+            action, http.request.header(logic.CaptchaService.HEADER), http.request.clientAddress,
+        )
     }
 }

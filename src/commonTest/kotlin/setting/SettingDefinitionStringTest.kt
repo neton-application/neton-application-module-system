@@ -36,10 +36,18 @@ class SettingDefinitionStringTest {
 
     @Test
     fun siteKeysAreWellFormed() {
-        assertEquals(listOf("system.site.name", "system.site.tagline"), SystemSettingKeys.definitions.map { it.key })
+        assertEquals(
+            listOf(
+                "system.site.name", "system.site.tagline",
+                "system.security.captcha.enabled", "system.security.captcha.site_key", "system.security.captcha.actions",
+            ),
+            SystemSettingKeys.definitions.map { it.key },
+        )
         assertEquals("system", SystemSettingKeys.CATEGORY)
         assertEquals("", SystemSettingKeys.SITE_TAGLINE.parse(""))
         assertNull(SystemSettingKeys.SITE_NAME.parse(""), "站点名称不能清空")
+        // 人机验证默认关闭：没配 secret 的部署升级后不能突然把注册挡住
+        assertEquals(false, SystemSettingKeys.CAPTCHA_ENABLED.default)
     }
 
     @Test

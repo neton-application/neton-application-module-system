@@ -54,6 +54,15 @@ object SystemRuntimeBootstrap {
             "module-system needs an HttpClient bound in NetonContext (SmsProvider). Build one in the " +
                 "application with HttpClient.create { } and bind(HttpClient::class, it).",
         )
+        // 人机验证：secret 只从环境变量来；开关、站点 key、动作在后台配置（SystemSettingKeys.CAPTCHA_*）
+        ctx.bind(logic.CaptchaService::class, logic.CaptchaService(
+            log = loggerFactory.get("security.captcha"),
+            http = outboundHttp,
+            settings = ctx.get(logic.SystemSettingLogic::class),
+            secret = neton.core.config.getEnv(logic.CaptchaService.ENV_SECRET),
+            verifyUrl = neton.core.config.getEnv(logic.CaptchaService.ENV_VERIFY_URL)?.trim()?.takeIf { it.isNotEmpty() }
+                ?: logic.CaptchaService.DEFAULT_VERIFY_URL,
+        ))
         val smsProvider = SmsProvider(loggerFactory.get("provider.sms"), outboundHttp)
         val emailProvider = EmailProvider(loggerFactory.get("provider.email"), outboundHttp, ctx.getOrNull(neton.http.mail.SmtpTransport::class))
         val messageProviders = mapOf<String, MessageProvider>("sms" to smsProvider, "email" to emailProvider)

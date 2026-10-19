@@ -43,6 +43,14 @@ object SystemErrorCodes {
     const val VERIFICATION_DAILY_LIMIT = "VERIFICATION_DAILY_LIMIT"
     const val VERIFICATION_DAILY_BUDGET_EXHAUSTED = "VERIFICATION_DAILY_BUDGET_EXHAUSTED"
 
+    // ---- 人机验证 ----
+    /** 这个动作要求人机验证，请求没带凭证。 */
+    const val CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
+    /** 凭证无效、过期、已用过，或签发给了别的动作。 */
+    const val CAPTCHA_INVALID = "CAPTCHA_INVALID"
+    /** 打开了人机验证但服务端没配 secret，或供应商不可达：拒绝而不是放行。 */
+    const val CAPTCHA_UNAVAILABLE = "CAPTCHA_UNAVAILABLE"
+
     // ---- MFA ----
     const val MFA_NOT_CONFIGURED = "MFA_NOT_CONFIGURED"
     const val MFA_CHALLENGE_INVALID = "MFA_CHALLENGE_INVALID"

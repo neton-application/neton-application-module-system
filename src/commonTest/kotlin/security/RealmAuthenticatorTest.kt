@@ -11,6 +11,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 /**
  * 身份域隔离矩阵（评审 R01/R02）：管理员与账号令牌用同一把密钥签发、id 相同，
@@ -135,5 +137,16 @@ class RealmAuthenticatorTest {
         assertFailsWith<IllegalStateException> { requireUsableJwtSecret("REPLACE_ME_SET_NETON_SECURITY__JWT__SECRETKEY") }
         assertFailsWith<IllegalStateException> { requireUsableJwtSecret("too-short-secret") }
         assertEquals("x".repeat(32), requireUsableJwtSecret(" ${"x".repeat(32)} "))
+    }
+
+    @Test
+    fun onlyFullScopeUnifiedTokensGrantApplicationAccess() {
+        assertTrue(grantsApplicationAccess(emptyList()), "legacy token without scope")
+        assertTrue(grantsApplicationAccess(listOf("user")))
+        assertTrue(grantsApplicationAccess(listOf("im")))
+        assertTrue(grantsApplicationAccess(listOf("messaging", "user")))
+        for (restricted in listOf(listOf("agent_node"), listOf("messaging"), listOf("agent"), listOf(""))) {
+            assertFalse(grantsApplicationAccess(restricted), "$restricted")
+        }
     }
 }

@@ -74,7 +74,9 @@ class RealmAuthenticator(
         // 外部 unified token：新 API 直接吃 token 字符串，返回 AuthOutcome（Failure 一律 fail-closed 返 null）。
         if (realm == null || !realm.acceptsExternalTokens || unified == null) return null
         return when (val outcome = unified.authenticate(token)) {
-            is AuthOutcome.Success -> outcome.identity.toFrameworkIdentity()
+            is AuthOutcome.Success ->
+                if (grantsApplicationAccess(outcome.identity.scope)) outcome.identity.toFrameworkIdentity()
+                else reject(context, "restricted_scope")
             is AuthOutcome.Failure -> null
         }
     }
@@ -116,3 +118,13 @@ private fun UnifiedIdentity.toFrameworkIdentity(): IdentityUser = IdentityUser(
     roles = emptySet(),
     permissions = scope.toSet(),
 )
+
+/**
+ * 外部 unified token 只有带完整能力的 scope（`user` / `im`，或历史上不带 scope）才换得到应用身份。
+ *
+ * 受限 scope（客服访客的 `messaging`、设备节点的 `agent_node`……）是给 IM 通道签的窄凭据：
+ * 若在这里一样变成 `Identity`，它就能以同一个 uid 调用全部 `/app` 接口，受限便形同虚设。
+ * 未知 scope 同样不放行——与 privchat-server 的能力矩阵一致（AUTH_SPEC §7.3）。
+ */
+fun grantsApplicationAccess(scope: List<String>): Boolean =
+    scope.isEmpty() || scope.any { it == "user" || it == "im" }

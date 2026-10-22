@@ -108,13 +108,15 @@ class RealmAuthenticator(
 }
 
 /**
- * unified token 的轻量 Identity 视图 → framework `Identity`。映射约定与
+ * unified token 的轻量 Identity 视图 → framework `Identity`（带设备，见 [DeviceBoundIdentity]）。映射约定与
  * neton-security `DispatchingJwtAuthenticator`（private）保持一致：roles 留空
  * （unified token 不携带 roles，RBAC 由 application 实时判断），scope 当 permissions
  * —— 只是让现有 Guard 模型有数据可读，不构成授权依据。
  */
-private fun UnifiedIdentity.toFrameworkIdentity(): IdentityUser = IdentityUser(
+private fun UnifiedIdentity.toFrameworkIdentity(): UnifiedSessionIdentity = UnifiedSessionIdentity(
     userId = UserId(userId.toULong()),
+    deviceId = deviceId,
+    sessionVersion = sessionVersion,
     roles = emptySet(),
     permissions = scope.toSet(),
 )

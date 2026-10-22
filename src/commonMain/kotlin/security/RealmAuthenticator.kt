@@ -3,7 +3,6 @@ package security
 import neton.core.interfaces.Identity
 import neton.logging.Logger
 import neton.security.identity.AuthenticationException
-import neton.security.identity.IdentityUser
 import neton.security.identity.UserId
 import neton.security.jwt.AuthOutcome
 import neton.security.jwt.JwtAuthenticator

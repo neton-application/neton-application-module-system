@@ -34,7 +34,7 @@ class SystemSettingLogic(
             ?: return definition.default
         val parsed = definition.parse(row.value)
         if (parsed == null) {
-            log.warn("system.config.unparsable key=${definition.key} raw=${row.value} fallback=${definition.defaultRaw}")
+            log.warn("system.config.unparsable key=${definition.key}")
             return definition.default
         }
         return parsed
@@ -63,7 +63,7 @@ class SystemSettingLogic(
         } else {
             SystemSettingTable.update(existing.copy(value = normalized))
         }
-        log.info("system.config.updated key=${definition.key} value=$normalized")
+        log.info("system.config.updated key=${definition.key}")
         return parsed
     }
 
@@ -113,4 +113,15 @@ class SystemSettingLogic(
 
     /** 定义清单：后台据此渲染控件与说明，并禁止手写任意 key。 */
     fun definitions(): List<SettingDefinition<*>> = registry.definitions
+
+    /** One database statement prevents a component response mixing multiple reads. */
+    suspend fun snapshot(category: String): SystemSettingSnapshot =
+        SystemSettingSnapshot(category, list(category).associate { it.settingKey to it.value })
+}
+
+class SystemSettingSnapshot internal constructor(private val category: String, private val values: Map<String, String>) {
+    fun <T : Any> get(definition: SettingDefinition<T>): T {
+        require(definition.category == category) { "Setting category mismatch" }
+        return values[definition.key]?.let(definition::parse) ?: definition.default
+    }
 }

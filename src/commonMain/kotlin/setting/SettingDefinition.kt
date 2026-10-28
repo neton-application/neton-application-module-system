@@ -35,6 +35,13 @@ class SettingDefinition<T : Any> private constructor(
 
     fun render(value: T): String = renderer(value)
 
+    /** Domain validation participates in both admin writes and defensive reads. */
+    fun validated(predicate: (T) -> Boolean): SettingDefinition<T> {
+        require(predicate(default)) { "Invalid default for setting $key" }
+        return SettingDefinition(category, key, valueType, default, name, description,
+            parser = { raw -> parse(raw)?.takeIf(predicate) }, renderer = renderer)
+    }
+
     /** 默认值的字符串形式，同步入库时用 */
     val defaultRaw: String get() = renderer(default)
 

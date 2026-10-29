@@ -1,3 +1,5 @@
+@file:OptIn(neton.core.annotations.InternalNetonApi::class)
+
 package security
 
 import init.generated.SystemMigrationResources
